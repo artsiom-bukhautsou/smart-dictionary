@@ -1,9 +1,11 @@
 name: Docker Build and Push
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - 'Build and Push Docker Image'
+    types:
+      - manual
 
 jobs:
   build:
