@@ -57,9 +57,8 @@ function displayTranslation(translation) {
 document.getElementById('downloadButton').addEventListener('click', function () {
     // Trigger the download by making a request to the server endpoint
     fetch('http://smart-dictionary:8080/translations/download', {
-            method: "POST",
+            method: "GET",
             headers: {
-                "Content-Type": "application/json",
                 "Authorization": "Basic " + btoa(`${storedUsername}:${storedPassword}`),
             },
         }

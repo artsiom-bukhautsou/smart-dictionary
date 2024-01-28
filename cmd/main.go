@@ -26,11 +26,13 @@ var (
 
 func main() {
 	e := echo.New()
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
-	}))
-	e.Use(middleware.BasicAuth(basicAuth))
+	e.Use(
+		middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: []string{"*"},
+			AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
+		}),
+		middleware.BasicAuth(basicAuth),
+	)
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	connString := "postgres://" + PostgresUserName + ":" + PostgresPassword + "@" + PostgresHost + ":" + PostgresPort + "/" + PostgresDBName
 	conn, err := pgx.Connect(context.Background(), connString)
