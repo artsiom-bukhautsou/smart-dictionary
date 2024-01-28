@@ -1,0 +1,22 @@
+version: '3'
+services:
+  smart-dictionary:
+    image: artsiombukhautsou/smart-dictionary:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    env_file:
+      - .env.tmp
+
+  postgres:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env.tmp
+
+volumes:
+  postgres_data:

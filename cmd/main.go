@@ -20,6 +20,8 @@ var (
 	PostgresPort     = os.Getenv("POSTGRES_PORT")
 	PostgresHost     = os.Getenv("POSTGRES_HOST")
 	PostgresDBName   = os.Getenv("POSTGRES_DBNAME")
+	Username         = os.Getenv("USER_NAME")
+	Password         = os.Getenv("PASSWORD")
 )
 
 func main() {
@@ -28,6 +30,7 @@ func main() {
 		AllowOrigins: []string{"*"},
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
 	}))
+	e.Use(middleware.BasicAuth(basicAuth))
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	connString := "postgres://" + PostgresUserName + ":" + PostgresPassword + "@" + PostgresHost + ":" + PostgresPort + "/" + PostgresDBName
 	conn, err := pgx.Connect(context.Background(), connString)
@@ -42,4 +45,11 @@ func main() {
 	e.POST("/translations", translatorServer.Translate)
 	e.GET("/translations/download", translatorServer.DownloadTranslations)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
+}
+
+func basicAuth(username, password string, c echo.Context) (bool, error) {
+	if username == Username && password == Password {
+		return true, nil
+	}
+	return false, nil
 }
