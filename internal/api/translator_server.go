@@ -17,11 +17,17 @@ type TranslatorServer struct {
 	chatGPTAPIURL        string
 	apiKey               string
 	translatorRepository domain.TranslatorRepository
+	cardsRepository      domain.CardRepository
 }
 
-func NewTranslatorServer(translatorRepository domain.TranslatorRepository, logger slog.Logger, chatGPTAPIURL string, apiKey string) *TranslatorServer {
+func NewTranslatorServer(
+	translatorRepository domain.TranslatorRepository,
+	cardsRepository domain.CardRepository,
+	logger slog.Logger, chatGPTAPIURL string,
+	apiKey string) *TranslatorServer {
 	return &TranslatorServer{
 		translatorRepository: translatorRepository,
+		cardsRepository:      cardsRepository,
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
@@ -49,6 +55,12 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	err = t.translatorRepository.AddWordTranslation(c.Request().Context(), *message)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
+	}
+	err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*message))
+	if err != nil {
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 	}
 	return c.JSON(http.StatusOK, message)
 }
@@ -124,4 +136,51 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation
 	}
 
 	return &wordTranslation, nil
+}
+
+func wordTranslationToMarkdown(wt domain.WordTranslation) string {
+	var markdownBuilder strings.Builder
+
+	// Word and horizontal line
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n---\n\n", wt.Word))
+
+	// Bold formatting for headers
+	bold := func(s string) string {
+		return fmt.Sprintf("**%s**", s)
+	}
+
+	// Heading with the word
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", bold(wt.Word)))
+
+	// Meaning section
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Meaning")))
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.Meaning))
+
+	// Examples section
+	if len(wt.Examples) > 0 {
+		markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Examples")))
+		for _, example := range wt.Examples {
+			markdownBuilder.WriteString(fmt.Sprintf("- %s\n", example))
+		}
+		markdownBuilder.WriteString("\n")
+	}
+
+	// Russian Translation section
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Russian Translation")))
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.RussianTranslation))
+
+	// Meaning in Russian section
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Meaning in Russian")))
+	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.MeaningRussian))
+
+	// Examples in Russian section
+	if len(wt.ExamplesRussian) > 0 {
+		markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Examples in Russian")))
+		for _, exampleRussian := range wt.ExamplesRussian {
+			markdownBuilder.WriteString(fmt.Sprintf("- %s\n", exampleRussian))
+		}
+		markdownBuilder.WriteString("\n")
+	}
+
+	return markdownBuilder.String()
 }

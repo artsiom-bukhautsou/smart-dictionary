@@ -13,15 +13,18 @@ import (
 )
 
 var (
-	chatGPTAPIURL    = os.Getenv("CHAT_GPT_API_URL")
-	apiKey           = os.Getenv("OPEN_AI_API_KEY")
-	PostgresUserName = os.Getenv("POSTGRES_USERNAME")
-	PostgresPassword = os.Getenv("POSTGRES_PASSWORD")
-	PostgresPort     = os.Getenv("POSTGRES_PORT")
-	PostgresHost     = os.Getenv("POSTGRES_HOST")
-	PostgresDBName   = os.Getenv("POSTGRES_DBNAME")
-	Username         = os.Getenv("USER_NAME")
-	Password         = os.Getenv("PASSWORD")
+	chatGPTAPIURL     = os.Getenv("CHAT_GPT_API_URL")
+	apiKey            = os.Getenv("OPEN_AI_API_KEY")
+	PostgresUserName  = os.Getenv("POSTGRES_USERNAME")
+	PostgresPassword  = os.Getenv("POSTGRES_PASSWORD")
+	PostgresPort      = os.Getenv("POSTGRES_PORT")
+	PostgresHost      = os.Getenv("POSTGRES_HOST")
+	PostgresDBName    = os.Getenv("POSTGRES_DBNAME")
+	Username          = os.Getenv("USER_NAME")
+	Password          = os.Getenv("PASSWORD")
+	DeckID            = os.Getenv("DECK_ID")
+	MochiCardsBaseURL = os.Getenv("MOCHI_CARDS_BASE_URL")
+	MochiToken        = os.Getenv("MOCHI_TOKEN")
 )
 
 func main() {
@@ -43,8 +46,9 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
+	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken, DeckID)
 	translationRepository := repository.NewTranslationRepository(conn)
-	translatorServer := api.NewTranslatorServer(translationRepository, *logger, chatGPTAPIURL, apiKey)
+	translatorServer := api.NewTranslatorServer(translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
 	e.POST("/translations", translatorServer.Translate)
 	e.GET("/translations/download", translatorServer.DownloadTranslations)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))

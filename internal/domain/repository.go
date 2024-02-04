@@ -16,3 +16,8 @@ type TranslatorRepository interface {
 	GetAllWordTranslations(ctx context.Context) ([]WordTranslation, error)
 	GetWordTranslation(ctx context.Context, word string) (*WordTranslation, error)
 }
+
+// CardRepository defines the interface for creating a card
+type CardRepository interface {
+	CreateCard(content string) error
+}
