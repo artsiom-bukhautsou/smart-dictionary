@@ -46,6 +46,12 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	if translation != nil {
+		err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*translation))
+		if err != nil {
+			if err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+		}
 		return c.JSON(http.StatusOK, translation)
 	}
 	message, err := t.callChatGPTAPI("Translate the word, provide response in the following json format: word(string), meaning (string), examples (string array size 2), russianTranslation (string), meaningRussian (string) examplesRussian (string array size 2). Word to translate:" + req.Word)
