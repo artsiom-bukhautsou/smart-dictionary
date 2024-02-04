@@ -3,25 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatGPT Frontend</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css"
+          integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+    <title>Smart translator</title>
     <style>
         .response-section {
             margin-bottom: 15px;
         }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh; /* Set to 100% of viewport height */
+        }
+
+        .form-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
-<h1>Translation App</h1>
+<h1>Translate it 🚀</h1>
 
-<label for="wordInput">Enter Word:</label>
-<input type="text" id="wordInput" placeholder="Enter a word">
-<button onclick="translateWord()">Translate</button>
-<button id="downloadButton">Download Translations</button>
+<div class="form-container">
+    <div class="input-group mb-2">
+        <input type="text" class="form-control" id="wordInput" placeholder="Enter a word">
+        <button class="btn btn-primary" onclick="translateWord()">Translate</button>
+    </div>
 
+    <div>
+        <div id="translationContainer"></div>
 
-<div id="translationContainer"></div>
-
-<div id="widget-1"></div>
+        <div id="widget-1"></div>
+    </div>
+</div>
 
 <script src="script.js"></script>
 

@@ -54,29 +54,6 @@ function displayTranslation(translation) {
     translationContainer.innerHTML = html;
 }
 
-document.getElementById('downloadButton').addEventListener('click', function () {
-    // Trigger the download by making a request to the server endpoint
-    fetch('http://smart-dictionary:8080/translations/download', {
-            method: "GET",
-            headers: {
-                "Authorization": "Basic " + btoa(`${storedUsername}:${storedPassword}`),
-            },
-        }
-    )
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'translations.txt';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-        })
-        .catch(error => console.error('Error downloading translations:', error));
-});
-
-
 // 2. This code loads the widget API code asynchronously.
 var tag = document.createElement('script');
 
@@ -90,7 +67,7 @@ var widget;
 function onYouglishAPIReady(wordInput) {
     widget = new YG.Widget("widget-1", {
         width: 640,
-        components: 9, //search box & caption
+        components: 92, //search box & caption
         events: {
             'onFetchDone': onFetchDone,
             'onVideoChange': onVideoChange,
