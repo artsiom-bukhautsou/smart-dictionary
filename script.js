@@ -15,10 +15,17 @@ async function translateWord() {
     const wordInput = document.getElementById("wordInput").value;
 
     const translationContainer = document.getElementById("translationContainer");
-    translationContainer.innerHTML = "<p>Loading...</p>";
+    const loader = document.getElementById("loader");
+    loader.classList.remove("loader-hidden");
+    const translateInput = document.getElementById("translate-input");
+    translateInput.classList.add("loader-working");
+    translationContainer.classList.add("loader-working");
+    const widget1 = document.getElementById("widget-1");
+    widget1.classList.add("loader-working");
+    widget.pause()
 
     try {
-        const response = await fetch("http://smart-dictionary:8080/translations", {
+        const response = await fetch("http://translator.artem.codes:8080/translations", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -36,6 +43,11 @@ async function translateWord() {
         }
     } catch (error) {
         translationContainer.innerHTML = `<p>Error: ${error.message}</p>`;
+    } finally {
+        loader.classList.add("loader-hidden");
+        translateInput.classList.remove("loader-working");
+        translationContainer.classList.remove("loader-working");
+        widget1.classList.remove("loader-working");
     }
     onYouglishAPIReady(wordInput)
 }
@@ -44,11 +56,11 @@ function displayTranslation(translation) {
     const translationContainer = document.getElementById("translationContainer");
 
     const html = `
-        <p>Meaning: ${translation.meaning}</p>
-        <p>Examples: ${translation.examples.join(", ")}</p>
-        <p>Russian Translation: ${translation.russianTranslation}</p>
-        <p>Meaning in Russian: ${translation.meaningRussian}</p>
-        <p>Examples in Russian: ${translation.examplesRussian.join(", ")}</p>
+            <p><b>Meaning</b>: ${translation.meaning}</p>
+            <p><b>Examples</b>: ${translation.examples.join(", ")}</p>
+            <p><b>Russian</b> Translation: ${translation.russianTranslation}</p>
+            <p><b>Meaning</b> in Russian: ${translation.meaningRussian}</p>
+            <p><b>Examples</b> in Russian: ${translation.examplesRussian.join(", ")}</p>
     `;
 
     translationContainer.innerHTML = html;
