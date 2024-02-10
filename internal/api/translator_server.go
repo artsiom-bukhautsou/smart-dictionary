@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
@@ -59,7 +60,7 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	go func() {
-		err = t.translatorRepository.AddWordTranslation(c.Request().Context(), *message)
+		err = t.translatorRepository.AddWordTranslation(context.Background(), *message)
 		if err != nil {
 			t.logger.Error(err.Error())
 		}
