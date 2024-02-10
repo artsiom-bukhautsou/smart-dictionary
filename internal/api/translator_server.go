@@ -40,68 +40,37 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
-	t.logger.Info("received request", slog.String("word", req.Word))
+	req.Word = strings.ToLower(req.Word)
 	translation, err := t.translatorRepository.GetWordTranslation(c.Request().Context(), req.Word)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	if translation != nil {
-		err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*translation))
-		if err != nil {
+		go func() {
+			err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*translation))
 			if err != nil {
-				return c.String(http.StatusInternalServerError, err.Error())
+				t.logger.Error(err.Error())
 			}
-		}
+		}()
 		return c.JSON(http.StatusOK, translation)
 	}
 	message, err := t.callChatGPTAPI("Translate the word, provide response in the following json format: word(string), meaning (string), examples (string array size 2), russianTranslation (string), meaningRussian (string) examplesRussian (string array size 2). Word to translate:" + req.Word)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
-	err = t.translatorRepository.AddWordTranslation(c.Request().Context(), *message)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
-	}
-	err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*message))
-	if err != nil {
+	go func() {
+		err = t.translatorRepository.AddWordTranslation(c.Request().Context(), *message)
 		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
+			t.logger.Error(err.Error())
 		}
-	}
+		err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*message))
+		if err != nil {
+			if err != nil {
+				t.logger.Error(err.Error())
+			}
+		}
+	}()
 	return c.JSON(http.StatusOK, message)
-}
-
-func (t TranslatorServer) DownloadTranslations(c echo.Context) error {
-	// Retrieve all messages
-	messages, err := t.translatorRepository.GetAllWordTranslations(c.Request().Context())
-	if err != nil {
-		return c.String(http.StatusInternalServerError, "Failed to retrieve messages")
-	}
-
-	// Create a CSV writer
-	c.Response().Header().Set("Content-Type", "text/txt")
-	c.Response().Header().Set("Content-Disposition", "attachment;filename=messages.txt")
-
-	var buffer bytes.Buffer
-
-	// Write messages to CSV
-	for _, translation := range messages {
-		// Format line for in-memory storage
-		line := fmt.Sprintf("%s\n;*meaning*: %s\n*examples*: %s\n*russian*: %s\n*russian meaning*: %s\n*examples*: %s\n\n",
-			translation.Word,
-			translation.Meaning,
-			strings.Join(translation.Examples, ". "),
-			translation.RussianTranslation,
-			translation.MeaningRussian,
-			strings.Join(translation.ExamplesRussian, ". "),
-		)
-
-		// Write line to the in-memory buffer
-		if _, err := buffer.WriteString(line); err != nil {
-			return err
-		}
-	}
-	return c.String(http.StatusOK, buffer.String())
 }
 
 func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation, error) {

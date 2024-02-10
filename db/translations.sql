@@ -12,5 +12,5 @@ CREATE TABLE IF NOT EXISTS public.translations (
     examples_russian VARCHAR(255)[]
     );
 
--- Insert sample data
-INSERT INTO public.translation (meaning, examples, russian_translation, meaning_russian, examples_russian)
+-- Index for word to improve the performance
+CREATE INDEX idx_word ON translations (word);
