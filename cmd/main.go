@@ -50,7 +50,6 @@ func main() {
 	translationRepository := repository.NewTranslationRepository(conn)
 	translatorServer := api.NewTranslatorServer(translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
 	e.POST("/translations", translatorServer.Translate)
-	e.GET("/translations/download", translatorServer.DownloadTranslations)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }
 
