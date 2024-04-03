@@ -14,3 +14,10 @@ CREATE TABLE IF NOT EXISTS public.translations (
 
 -- Index for word to improve the performance
 CREATE INDEX idx_word ON translations (word);
+
+CREATE TABLE IF NOT EXIST public.users {
+    id SERIAL PRIMARY KEY,
+    user_name VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    deck  VARCHAR(255) NOT NULL
+    };
