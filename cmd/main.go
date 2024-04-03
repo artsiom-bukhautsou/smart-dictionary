@@ -46,7 +46,7 @@ func main() {
 	e.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
 			AllowCredentials: true,
 		}),
 		middleware.BasicAuth(authService.BasicAuth),
