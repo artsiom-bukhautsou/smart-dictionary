@@ -19,26 +19,24 @@ type CardRequest struct {
 type MochiCardRepository struct {
 	BaseURL string
 	Token   string
-	DeckID  string
 }
 
 // NewMochiCardRepository creates a new instance of MochiCardRepository with the provided configuration
-func NewMochiCardRepository(baseURL, token, deckID string) *MochiCardRepository {
+func NewMochiCardRepository(baseURL, token string) *MochiCardRepository {
 	return &MochiCardRepository{
 		BaseURL: baseURL,
 		Token:   token,
-		DeckID:  deckID,
 	}
 }
 
 // CreateCard sends a request to create a card using the provided data
-func (m MochiCardRepository) CreateCard(content string) error {
+func (m MochiCardRepository) CreateCard(deckID, content string) error {
 	url := m.BaseURL + "/api/cards/"
 	headers := map[string]string{
 		"Content-Type":  "application/json",
 		"Authorization": m.generateBasicAuthHeader(),
 	}
-	req := CardRequest{Content: content, DeckID: m.DeckID}
+	req := CardRequest{Content: content, DeckID: deckID}
 
 	requestBody, err := json.Marshal(req)
 	if err != nil {

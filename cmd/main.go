@@ -21,7 +21,6 @@ var (
 	PostgresPort      = os.Getenv("POSTGRES_PORT")
 	PostgresHost      = os.Getenv("POSTGRES_HOST")
 	PostgresDBName    = os.Getenv("POSTGRES_DBNAME")
-	DeckID            = os.Getenv("DECK_ID")
 	MochiCardsBaseURL = os.Getenv("MOCHI_CARDS_BASE_URL")
 	MochiToken        = os.Getenv("MOCHI_TOKEN")
 )
@@ -37,7 +36,7 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken, DeckID)
+	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
 	translationRepository := repository.NewTranslationRepository(conn)
 	translatorServer := api.NewTranslatorServer(translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
 	e.POST("/translations", translatorServer.Translate)
