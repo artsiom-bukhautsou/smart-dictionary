@@ -36,6 +36,10 @@ func NewTranslatorServer(
 }
 
 func (t TranslatorServer) Translate(c echo.Context) error {
+	deckID := c.Request().Header.Get("Deck-Id")
+	if deckID == "" {
+		return c.String(http.StatusBadRequest, "Deck-Id wasn't provided")
+	}
 	var req domain.RequestMessage
 	err := c.Bind(&req)
 	if err != nil {
@@ -48,7 +52,7 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	}
 	if translation != nil {
 		go func() {
-			err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*translation))
+			err = t.cardsRepository.CreateCard(deckID, wordTranslationToMarkdown(*translation))
 			if err != nil {
 				t.logger.Error(err.Error())
 			}
@@ -64,7 +68,7 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		if err != nil {
 			t.logger.Error(err.Error())
 		}
-		err = t.cardsRepository.CreateCard(wordTranslationToMarkdown(*message))
+		err = t.cardsRepository.CreateCard(deckID, wordTranslationToMarkdown(*message))
 		if err != nil {
 			if err != nil {
 				t.logger.Error(err.Error())

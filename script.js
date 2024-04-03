@@ -1,14 +1,17 @@
 const storedUsername = localStorage.getItem("username");
 const storedPassword = localStorage.getItem("password");
+const deckId = localStorage.getItem("deckId");
 
 if (!storedUsername || !storedPassword) {
     // Credentials are not stored, prompt the user to enter them
     const username = prompt("Enter your username:");
     const password = prompt("Enter your password:");
+    const deckId = prompt("Enter your deck name:");
 
     // Store credentials in localStorage
     localStorage.setItem("username", username);
     localStorage.setItem("password", password);
+    localStorage.setItem("deckId", deckId);
 }
 
 async function translateWord() {
@@ -30,6 +33,7 @@ async function translateWord() {
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": "Basic " + btoa(`${storedUsername}:${storedPassword}`),
+                "Deck-Id": deckId
             },
             body: JSON.stringify({word: wordInput}),
         });
