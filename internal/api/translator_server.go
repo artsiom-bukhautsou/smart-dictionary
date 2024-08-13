@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
+	"github.com/bukhavtsov/artems-dictionary/internal/service"
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 
 type TranslatorServer struct {
 	logger               slog.Logger
+	authService          service.AuthService
 	chatGPTAPIURL        string
 	apiKey               string
 	translatorRepository domain.TranslatorRepository
@@ -22,17 +24,48 @@ type TranslatorServer struct {
 }
 
 func NewTranslatorServer(
+	authService service.AuthService,
 	translatorRepository domain.TranslatorRepository,
 	cardsRepository domain.CardRepository,
 	logger slog.Logger, chatGPTAPIURL string,
 	apiKey string) *TranslatorServer {
 	return &TranslatorServer{
+		authService:          authService,
 		translatorRepository: translatorRepository,
 		cardsRepository:      cardsRepository,
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
 	}
+}
+
+func (t TranslatorServer) SignIn(c echo.Context) error {
+	var creds domain.AuthCredentials
+	err := c.Bind(&creds)
+	if err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+	areCredsValid, err := t.authService.BasicAuth(creds.Username, creds.Password, c)
+	if !areCredsValid {
+		return c.String(http.StatusForbidden, "Received invalid credentials")
+	}
+	if err != nil {
+		return c.String(http.StatusUnauthorized, err.Error())
+	}
+	return c.String(http.StatusOK, "successfully authenticated")
+}
+
+func (t TranslatorServer) SignUp(c echo.Context) error {
+	var creds domain.AuthCredentials
+	err := c.Bind(&creds)
+	if err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+	err = t.authService.CreateUser(creds.Username, creds.Password)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+	return c.String(http.StatusOK, "successfully sign up")
 }
 
 func (t TranslatorServer) Translate(c echo.Context) error {

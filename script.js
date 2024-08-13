@@ -1,17 +1,94 @@
 const storedUsername = localStorage.getItem("username");
 const storedPassword = localStorage.getItem("password");
-const deckId = localStorage.getItem("deckId");
 
 if (!storedUsername || !storedPassword) {
-    // Credentials are not stored, prompt the user to enter them
+
+    // Hide the content
+    document.getElementById('content').style.display = 'none';
+    // Show the auth prompt
+    document.getElementById('auth-prompt').style.display = 'block';
+}
+
+async function signIn() {
     const username = prompt("Enter your username:");
     const password = prompt("Enter your password:");
-    const deckId = prompt("Enter your deck name:");
 
-    // Store credentials in localStorage
-    localStorage.setItem("username", username);
-    localStorage.setItem("password", password);
-    localStorage.setItem("deckId", deckId);
+    // Create the payload
+    const payload = {
+        username: username,
+        password: password
+    };
+
+    try {
+        // Send POST request to /auth/signin
+        const response = await fetch("http://localhost:8080/auth/signin", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            // Store in localStorage
+            localStorage.setItem("username", username);
+            localStorage.setItem("password", password);
+
+            alert("Sign-in successful!");
+            location.reload();
+        } else {
+            // Handle invalid credentials or other errors
+            alert("Invalid username or password");
+        }
+    } catch (error) {
+        // Handle network errors
+        alert("Error during sign-in: " + error.message);
+    }
+}
+
+// Function to handle user sign-up
+async function signUp() {
+    const username = prompt("Enter your username:");
+    const password = prompt("Enter your password:");
+
+    // Create the payload
+    const payload = {
+        username: username,
+        password: password
+    };
+
+    try {
+        // Send POST request to /auth/signup
+        const response = await fetch("http://localhost:8080/auth/signup", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            // Store in localStorage
+            localStorage.setItem("username", username);
+            localStorage.setItem("password", password);
+
+            alert("Sign-up successful!");
+            location.reload();
+        } else {
+            // Handle registration errors
+            alert("Sign-up failed, please try again");
+        }
+    } catch (error) {
+        // Handle network errors
+        alert("Error during sign-up: " + error.message);
+    }
+}
+
+async function logout(){
+    localStorage.removeItem("username");
+    localStorage.removeItem("password");
+    alert("Logout successful!");
+    location.reload();
 }
 
 async function translateWord() {
@@ -82,6 +159,7 @@ var widget;
 
 function onYouglishAPIReady(wordInput) {
     widget = new YG.Widget("widget-1", {
+        autoStart: 0,
         width: 640,
         components: 92, //search box & caption
         events: {

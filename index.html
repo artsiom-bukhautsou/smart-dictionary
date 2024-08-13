@@ -60,22 +60,28 @@
 <body>
 
 <h1>Translate it 🚀</h1>
+<div id="content">
+    <div class="form-container">
+        <div id="translate-input" class="input-group mb-2">
+            <input type="text" class="form-control" id="wordInput" placeholder="Enter a word">
+            <button class="btn btn-primary" onclick="translateWord()">Translate</button>
+        </div>
+        <div id="loader" class="loader loader-hidden"></div>
 
-<div class="form-container">
-    <div id="translate-input" class="input-group mb-2">
-        <input type="text" class="form-control" id="wordInput" placeholder="Enter a word">
-        <button class="btn btn-primary" onclick="translateWord()">Translate</button>
+        <div>
+            <div id="translationContainer"></div>
+            <div id="widget-1"></div>
+        </div>
     </div>
-    <div id="loader" class="loader loader-hidden"></div>
-
-    <div>
-        <div id="translationContainer"></div>
-
-        <div id="widget-1"></div>
-    </div>
+    <button onclick="logout()">logout</button>
+</div>
+<div id="auth-prompt" style="display: none;">
+    <h2>Please Sign In or Sign Up</h2>
+    <button onclick="signIn()">Sign In</button>
+    <button onclick="signUp()">Sign Up</button>
 </div>
 
-<script src="script.js"></script>
 
+<script src="script.js"></script>
 </body>
 </html>

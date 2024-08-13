@@ -36,14 +36,14 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
-	translationRepository := repository.NewTranslationRepository(conn)
-	translatorServer := api.NewTranslatorServer(translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
-	e.POST("/translations", translatorServer.Translate)
-
 	userRepository := repository.NewUserRepository(conn)
 	authService := service.NewAuthService(userRepository)
-	e.Use(
+	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
+	translationRepository := repository.NewTranslationRepository(conn)
+	translatorServer := api.NewTranslatorServer(*authService, translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
+
+	apiGroup := e.Group("/api")
+	apiGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins:     []string{"*"},
 			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
@@ -51,5 +51,16 @@ func main() {
 		}),
 		middleware.BasicAuth(authService.BasicAuth),
 	)
+	apiGroup.POST("/translations", translatorServer.Translate)
+
+	e.Use(
+		middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins:     []string{"*"},
+			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
+			AllowCredentials: true,
+		}),
+	)
+	e.POST("/auth/signin", translatorServer.SignIn)
+	e.POST("/auth/signup", translatorServer.SignUp)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }
