@@ -37,10 +37,12 @@
 <div class="flex flex-col items-center justify-center h-screen w-full bg-gray-50 dark:bg-gray-900 dark:text-white">
     <!-- Theme Toggle Button in the top right corner -->
     <div class="absolute top-4 right-4 flex space-x-4">
-        <button id="themeToggle" onclick="toggleTheme()" class="px-4 py-2 bg-gray-300 text-black rounded-md hover:bg-gray-400 focus:outline-none dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600">
+        <button id="themeToggle" onclick="toggleTheme()"
+                class="px-4 py-2 bg-gray-300 text-black rounded-md hover:bg-gray-400 focus:outline-none dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600">
             🌙
         </button>
-        <button onclick="logout()" class="px-4 py-2 bg-gray-200 text-black rounded-md hover:bg-gray-300 focus:outline-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700">
+        <button onclick="logout()"
+                class="px-4 py-2 bg-gray-200 text-black rounded-md hover:bg-gray-300 focus:outline-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700">
             Logout
         </button>
     </div>
@@ -50,8 +52,11 @@
     <div id="content" class="w-full max-w-md p-6 bg-white rounded-lg shadow-md dark:bg-gray-800">
         <div class="form-container space-y-4">
             <div id="translate-input" class="flex space-x-2">
-                <input type="text" id="wordInput" placeholder="Enter a word" class="flex-grow p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:focus:ring-blue-400">
-                <button class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none" onclick="translateWord()">Translate</button>
+                <input type="text" id="wordInput" placeholder="Type a word, phrase, or idiom here"
+                       class="flex-grow p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:focus:ring-blue-400">
+                <button class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none"
+                        onclick="translateWord()">Translate
+                </button>
             </div>
             <div id="loader" class="loader loader-hidden mx-auto"></div>
             <div id="translationContainer" class="mt-4"></div>
@@ -60,28 +65,7 @@
     </div>
 </div>
 
-<script>
-    const themeToggleBtn = document.getElementById('themeToggle');
-    const body = document.body;
-
-    // Check if dark mode is already enabled in localStorage
-    if (localStorage.getItem('dark-mode') === 'enabled') {
-        document.body.classList.add('dark');
-        themeToggleBtn.textContent = '☀️';
-    } else {
-        themeToggleBtn.textContent = '🌙';
-    }
-
-    function toggleTheme() {
-        body.classList.toggle('dark');
-        if (body.classList.contains('dark')) {
-            themeToggleBtn.textContent = '☀️';
-        } else {
-            themeToggleBtn.textContent = '🌙';
-        }
-    }
-</script>
-
+<script src="translate_dark_mode.js"></script>
 <script src="translate.js"></script>
 <script src="translate_auth.js"></script>
 </body>

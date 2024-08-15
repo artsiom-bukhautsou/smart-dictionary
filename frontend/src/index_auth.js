@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', function () {
     // Check if user is already logged in
-    if (localStorage.getItem('username')) {
+    if (localStorage.getItem('username') && localStorage.getItem('password')) {
         window.location.href = 'translate.html'; // Redirect to Hello World page if logged in
     }
 });
@@ -10,6 +10,7 @@ const signUpForm = document.getElementById('sign-up-form');
 const formTitle = document.getElementById('form-title');
 const toggleFormText = document.getElementById('toggle-form-text');
 const toggleFormLink = document.getElementById('toggle-form-link');
+
 
 toggleFormLink.addEventListener('click', (e) => {
     e.preventDefault();
@@ -32,7 +33,6 @@ async function handleSignIn(event) {
     event.preventDefault();
     const email = document.getElementById('sign-in-email').value;
     const password = document.getElementById('sign-in-password').value;
-    console.log(`Sign In - Email: ${email}, Password: ${password}`);
 
     const payload = {
         username: email,
@@ -65,7 +65,6 @@ async function handleSignUp(event) {
     event.preventDefault();
     const email = document.getElementById('sign-up-email').value;
     const password = document.getElementById('sign-up-password').value;
-    console.log(`Sign Up - Email: ${email}, Password: ${password}`);
 
     const payload = {
         username: email,
@@ -92,3 +91,6 @@ async function handleSignUp(event) {
         alert("Error during sign-up: " + error.message);
     }
 }
+
+signInForm.addEventListener('submit', handleSignIn);
+signUpForm.addEventListener('submit', handleSignUp);
