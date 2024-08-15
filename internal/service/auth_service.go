@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/repository"
 	"github.com/labstack/echo/v4"
 	"log/slog"
@@ -31,4 +32,13 @@ func (a AuthService) BasicAuth(username, password string, c echo.Context) (bool,
 	}
 	userNameWithPasswordCache[username] = password
 	return true, nil
+}
+
+func (a AuthService) CreateUser(username string, password string) error {
+	err := a.userRepository.CreateUser(username, password)
+	if err != nil {
+		slog.Error(err.Error())
+		return fmt.Errorf("failed to craete a user")
+	}
+	return nil
 }

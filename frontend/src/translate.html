@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="output.css" rel="stylesheet">
+    <title>Smart Translator</title>
+    <style>
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: rotate 2s linear infinite;
+        }
+
+        .loader-hidden {
+            display: none;
+        }
+
+        .dark-mode .dark\\:hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="transition-colors duration-300">
+<div class="flex flex-col items-center justify-center h-screen w-full bg-gray-50 dark:bg-gray-900 dark:text-white">
+    <!-- Theme Toggle Button in the top right corner -->
+    <div class="absolute top-4 right-4 flex space-x-4">
+        <button id="themeToggle" onclick="toggleTheme()" class="px-4 py-2 bg-gray-300 text-black rounded-md hover:bg-gray-400 focus:outline-none dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600">
+            🌙
+        </button>
+        <button onclick="logout()" class="px-4 py-2 bg-gray-200 text-black rounded-md hover:bg-gray-300 focus:outline-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700">
+            Logout
+        </button>
+    </div>
+
+    <h1 class="text-3xl font-bold mb-8">Translate it 🚀</h1>
+
+    <div id="content" class="w-full max-w-md p-6 bg-white rounded-lg shadow-md dark:bg-gray-800">
+        <div class="form-container space-y-4">
+            <div id="translate-input" class="flex space-x-2">
+                <input type="text" id="wordInput" placeholder="Enter a word" class="flex-grow p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:focus:ring-blue-400">
+                <button class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none" onclick="translateWord()">Translate</button>
+            </div>
+            <div id="loader" class="loader loader-hidden mx-auto"></div>
+            <div id="translationContainer" class="mt-4"></div>
+            <div id="widget-1"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const themeToggleBtn = document.getElementById('themeToggle');
+    const body = document.body;
+
+    // Check if dark mode is already enabled in localStorage
+    if (localStorage.getItem('dark-mode') === 'enabled') {
+        document.body.classList.add('dark');
+        themeToggleBtn.textContent = '☀️';
+    } else {
+        themeToggleBtn.textContent = '🌙';
+    }
+
+    function toggleTheme() {
+        body.classList.toggle('dark');
+        if (body.classList.contains('dark')) {
+            themeToggleBtn.textContent = '☀️';
+        } else {
+            themeToggleBtn.textContent = '🌙';
+        }
+    }
+</script>
+
+<script src="translate.js"></script>
+<script src="translate_auth.js"></script>
+</body>
+</html>

@@ -29,3 +29,15 @@ func (ur *UserRepository) GetUser(userName string, password string) error {
 
 	return nil
 }
+
+func (ur *UserRepository) CreateUser(username string, password string) error {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	_, err = ur.conn.Exec(context.Background(), "INSERT INTO users (user_name, password) VALUES ($1, $2)", username, string(hashedPassword))
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+	return nil
+}
