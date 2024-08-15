@@ -53,14 +53,15 @@ func main() {
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 
-	e.Use(
+	authGroup := e.Group("/auth")
+	authGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
+			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
 			AllowCredentials: true,
 		}),
 	)
-	e.POST("/auth/signin", translatorServer.SignIn)
-	e.POST("/auth/signup", translatorServer.SignUp)
+	authGroup.POST("/signin", translatorServer.SignIn)
+	authGroup.POST("/signup", translatorServer.SignUp)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }

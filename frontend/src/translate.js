@@ -1,96 +1,6 @@
 const storedUsername = localStorage.getItem("username");
 const storedPassword = localStorage.getItem("password");
 
-if (!storedUsername || !storedPassword) {
-
-    // Hide the content
-    document.getElementById('content').style.display = 'none';
-    // Show the auth prompt
-    document.getElementById('auth-prompt').style.display = 'block';
-}
-
-async function signIn() {
-    const username = prompt("Enter your username:");
-    const password = prompt("Enter your password:");
-
-    // Create the payload
-    const payload = {
-        username: username,
-        password: password
-    };
-
-    try {
-        // Send POST request to /auth/signin
-        const response = await fetch("http://localhost:8080/auth/signin", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-            // Store in localStorage
-            localStorage.setItem("username", username);
-            localStorage.setItem("password", password);
-
-            alert("Sign-in successful!");
-            location.reload();
-        } else {
-            // Handle invalid credentials or other errors
-            alert("Invalid username or password");
-        }
-    } catch (error) {
-        // Handle network errors
-        alert("Error during sign-in: " + error.message);
-    }
-}
-
-// Function to handle user sign-up
-async function signUp() {
-    const username = prompt("Enter your username:");
-    const password = prompt("Enter your password:");
-
-    // Create the payload
-    const payload = {
-        username: username,
-        password: password
-    };
-
-    try {
-        // Send POST request to /auth/signup
-        const response = await fetch("http://localhost:8080/auth/signup", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-            // Store in localStorage
-            localStorage.setItem("username", username);
-            localStorage.setItem("password", password);
-
-            alert("Sign-up successful!");
-            location.reload();
-        } else {
-            // Handle registration errors
-            alert("Sign-up failed, please try again");
-        }
-    } catch (error) {
-        // Handle network errors
-        alert("Error during sign-up: " + error.message);
-    }
-}
-
-async function logout(){
-    localStorage.removeItem("username");
-    localStorage.removeItem("password");
-    alert("Logout successful!");
-    location.reload();
-}
-
 async function translateWord() {
     const wordInput = document.getElementById("wordInput").value;
 
@@ -105,12 +15,12 @@ async function translateWord() {
     widget.pause()
 
     try {
-        const response = await fetch("http://translator.artem.codes:8080/translations", {
+        const response = await fetch("http://localhost:8080/api/translations", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": "Basic " + btoa(`${storedUsername}:${storedPassword}`),
-                "Deck-Id": deckId
+                "Deck-Id": "deckId"
             },
             body: JSON.stringify({word: wordInput}),
         });
