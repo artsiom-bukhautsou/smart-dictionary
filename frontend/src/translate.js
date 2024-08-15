@@ -1,16 +1,6 @@
 const storedUsername = localStorage.getItem("username");
 const storedPassword = localStorage.getItem("password");
 
-if (!storedUsername || !storedPassword) {
-    // Credentials are not stored, prompt the user to enter them
-    const username = prompt("Enter your username:");
-    const password = prompt("Enter your password:");
-
-    // Store credentials in localStorage
-    localStorage.setItem("username", username);
-    localStorage.setItem("password", password);
-}
-
 async function translateWord() {
     const wordInput = document.getElementById("wordInput").value;
 
@@ -25,11 +15,12 @@ async function translateWord() {
     widget.pause()
 
     try {
-        const response = await fetch("http://translator.artem.codes:8080/translations", {
+        const response = await fetch("http://localhost:8080/api/translations", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": "Basic " + btoa(`${storedUsername}:${storedPassword}`),
+                "Deck-Id": "deckId"
             },
             body: JSON.stringify({word: wordInput}),
         });
@@ -78,6 +69,7 @@ var widget;
 
 function onYouglishAPIReady(wordInput) {
     widget = new YG.Widget("widget-1", {
+        autoStart: 0,
         width: 640,
         components: 92, //search box & caption
         events: {

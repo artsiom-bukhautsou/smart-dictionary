@@ -19,5 +19,5 @@ type TranslatorRepository interface {
 
 // CardRepository defines the interface for creating a card
 type CardRepository interface {
-	CreateCard(content string) error
+	CreateCard(deckID, content string) error
 }
