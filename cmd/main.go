@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/bukhavtsov/artems-dictionary/internal/api"
-	"github.com/bukhavtsov/artems-dictionary/internal/repository"
-	"github.com/bukhavtsov/artems-dictionary/internal/service"
+	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
+	"github.com/bukhavtsov/artems-dictionary/internal/server"
+	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"log"
 	"log/slog"
+	"net/http"
 	"os"
 )
 
@@ -36,20 +38,21 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	userRepository := repository.NewUserRepository(conn)
-	authService := service.NewAuthService(userRepository)
-	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
-	translationRepository := repository.NewTranslationRepository(conn)
-	translatorServer := api.NewTranslatorServer(*authService, translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
+	authRepository := infrastructure.NewAuthRepository(conn)
+	jwtAuth := usecase.NewJWTAuth(*authRepository)
+	authService := usecase.NewAuthService(*authRepository, *jwtAuth)
+	flashCardsRepository := infrastructure.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
+	translationRepository := infrastructure.NewTranslationRepository(conn)
+	translatorServer := server.NewTranslatorServer(*authService, translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
 
-	apiGroup := e.Group("/api")
+	apiGroup := e.Group("/server")
 	apiGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins:     []string{"*"},
 			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
 			AllowCredentials: true,
 		}),
-		middleware.BasicAuth(authService.BasicAuth),
+		authMiddleware(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 
@@ -64,4 +67,52 @@ func main() {
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
+}
+
+func authMiddleware(jwtAuth usecase.JWTAuth) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			log.Println(req.RequestURI)
+
+			signUpReq := req.RequestURI == "/api/v1/signup" && req.Method == http.MethodPost
+			signInReq := req.RequestURI == "/api/v1/signin" && req.Method == http.MethodPost
+			if !signUpReq && !signInReq {
+				accessTokenCookie, err := req.Cookie("accessToken")
+				if err != nil {
+					if err == http.ErrNoCookie {
+						log.Println("access token cookie not found")
+						return c.JSON(http.StatusUnauthorized, map[string]string{"message": "access token not found"})
+					}
+					log.Println("error retrieving access token cookie:", err)
+					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal server error"})
+				}
+
+				accessToken := accessTokenCookie.Value
+
+				// Retrieve the refresh token from cookies
+				refreshTokenCookie, err := req.Cookie("refresh_token")
+				if err != nil {
+					if err == http.ErrNoCookie {
+						log.Println("refresh token cookie not found")
+						return c.JSON(http.StatusUnauthorized, map[string]string{"message": "refresh token not found"})
+					}
+					log.Println("error retrieving refresh token cookie:", err)
+					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal server error"})
+				}
+
+				refreshToken := refreshTokenCookie.Value
+
+				err = jwtAuth.Validate(&accessToken, &refreshToken)
+				if err != nil {
+					log.Println("invalid tokens:", err)
+					return c.JSON(http.StatusUnauthorized, map[string]string{"message": "invalid tokens"})
+				}
+
+				c.Response().Header().Set("access_token", accessToken)
+			}
+
+			return next(c)
+		}
+	}
 }

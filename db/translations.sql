@@ -42,3 +42,6 @@ CREATE TABLE IF NOT EXISTS public.deck_translations (
 -- Create index on deck_id and translation_id columns in deck_translations table
 CREATE INDEX idx_deck_id ON deck_translations (deck_id);
 CREATE INDEX idx_translation_id ON deck_translations (translation_id);
+
+--Migration add field for users table
+ALTER TABLE users ADD COLUMN refresh_token VARCHAR(255);

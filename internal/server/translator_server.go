@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"bytes"
@@ -6,17 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
-	"github.com/bukhavtsov/artems-dictionary/internal/service"
+	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type TranslatorServer struct {
 	logger               slog.Logger
-	authService          service.AuthService
+	authService          usecase.AuthService
 	chatGPTAPIURL        string
 	apiKey               string
 	translatorRepository domain.TranslatorRepository
@@ -24,7 +25,7 @@ type TranslatorServer struct {
 }
 
 func NewTranslatorServer(
-	authService service.AuthService,
+	authService usecase.AuthService,
 	translatorRepository domain.TranslatorRepository,
 	cardsRepository domain.CardRepository,
 	logger slog.Logger, chatGPTAPIURL string,
@@ -45,13 +46,33 @@ func (t TranslatorServer) SignIn(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
-	areCredsValid, err := t.authService.BasicAuth(creds.Username, creds.Password, c)
-	if !areCredsValid {
-		return c.String(http.StatusForbidden, "Received invalid credentials")
-	}
+	token, err := t.authService.SignIn(creds.Username, creds.Password)
 	if err != nil {
 		return c.String(http.StatusUnauthorized, err.Error())
 	}
+	// Set access token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "access_token",
+		Value:    token.Access,
+		Path:     "/",
+		Domain:   "",                            // Set to your domain if needed
+		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                         // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Set refresh token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "refresh_token",
+		Value:    token.Refresh,
+		Path:     "/",
+		Domain:   "",                             // Set to your domain if needed
+		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                          // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	return c.String(http.StatusOK, "successfully authenticated")
 }
 
@@ -61,10 +82,33 @@ func (t TranslatorServer) SignUp(c echo.Context) error {
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
-	err = t.authService.CreateUser(creds.Username, creds.Password)
+	token, err := t.authService.SignUp(creds)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
+	// Set access token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "access_token",
+		Value:    token.Access,
+		Path:     "/",
+		Domain:   "",                            // Set to your domain if needed
+		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                         // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Set refresh token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "refresh_token",
+		Value:    token.Refresh,
+		Path:     "/",
+		Domain:   "",                             // Set to your domain if needed
+		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                          // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	return c.String(http.StatusOK, "successfully sign up")
 }
 
