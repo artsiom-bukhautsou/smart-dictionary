@@ -9,22 +9,20 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 )
 
 var (
-	chatGPTAPIURL     = os.Getenv("CHAT_GPT_API_URL")
-	apiKey            = os.Getenv("OPEN_AI_API_KEY")
-	PostgresUserName  = os.Getenv("POSTGRES_USERNAME")
-	PostgresPassword  = os.Getenv("POSTGRES_PASSWORD")
-	PostgresPort      = os.Getenv("POSTGRES_PORT")
-	PostgresHost      = os.Getenv("POSTGRES_HOST")
-	PostgresDBName    = os.Getenv("POSTGRES_DBNAME")
-	MochiCardsBaseURL = os.Getenv("MOCHI_CARDS_BASE_URL")
-	MochiToken        = os.Getenv("MOCHI_TOKEN")
+	chatGPTAPIURL    = os.Getenv("CHAT_GPT_API_URL")
+	apiKey           = os.Getenv("OPEN_AI_API_KEY")
+	PostgresUserName = os.Getenv("POSTGRES_USERNAME")
+	PostgresPassword = os.Getenv("POSTGRES_PASSWORD")
+	PostgresPort     = os.Getenv("POSTGRES_PORT")
+	PostgresHost     = os.Getenv("POSTGRES_HOST")
+	PostgresDBName   = os.Getenv("POSTGRES_DBNAME")
 )
 
 func main() {
@@ -41,9 +39,8 @@ func main() {
 	authRepository := infrastructure.NewAuthRepository(conn)
 	jwtAuth := usecase.NewJWTAuth(*authRepository)
 	authService := usecase.NewAuthService(*authRepository, *jwtAuth)
-	flashCardsRepository := infrastructure.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
 	translationRepository := infrastructure.NewTranslationRepository(conn)
-	translatorServer := server.NewTranslatorServer(*authService, translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
+	translatorServer := server.NewTranslatorServer(*authService, *jwtAuth, translationRepository, *logger, chatGPTAPIURL, apiKey)
 
 	apiGroup := e.Group("/server")
 	apiGroup.Use(
@@ -52,7 +49,7 @@ func main() {
 			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
 			AllowCredentials: true,
 		}),
-		authMiddleware(*jwtAuth),
+		ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 
@@ -66,52 +63,31 @@ func main() {
 	)
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
+	authGroup.POST("/refresh", translatorServer.RefreshRefreshToken)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }
 
-func authMiddleware(jwtAuth usecase.JWTAuth) echo.MiddlewareFunc {
+func ValidateAccessToken(jwtAuth usecase.JWTAuth) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			req := c.Request()
-			log.Println(req.RequestURI)
-
-			signUpReq := req.RequestURI == "/api/v1/signup" && req.Method == http.MethodPost
-			signInReq := req.RequestURI == "/api/v1/signin" && req.Method == http.MethodPost
-			if !signUpReq && !signInReq {
-				accessTokenCookie, err := req.Cookie("accessToken")
-				if err != nil {
-					if err == http.ErrNoCookie {
-						log.Println("access token cookie not found")
-						return c.JSON(http.StatusUnauthorized, map[string]string{"message": "access token not found"})
-					}
-					log.Println("error retrieving access token cookie:", err)
-					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal server error"})
-				}
-
-				accessToken := accessTokenCookie.Value
-
-				// Retrieve the refresh token from cookies
-				refreshTokenCookie, err := req.Cookie("refresh_token")
-				if err != nil {
-					if err == http.ErrNoCookie {
-						log.Println("refresh token cookie not found")
-						return c.JSON(http.StatusUnauthorized, map[string]string{"message": "refresh token not found"})
-					}
-					log.Println("error retrieving refresh token cookie:", err)
-					return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal server error"})
-				}
-
-				refreshToken := refreshTokenCookie.Value
-
-				err = jwtAuth.Validate(&accessToken, &refreshToken)
-				if err != nil {
-					log.Println("invalid tokens:", err)
-					return c.JSON(http.StatusUnauthorized, map[string]string{"message": "invalid tokens"})
-				}
-
-				c.Response().Header().Set("access_token", accessToken)
+			auth := req.Header.Get("Authorization")
+			if auth == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
 			}
-
+			// Token usually comes as "Bearer <token>", so we split to get the actual token part
+			token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
+			if token == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+			}
+			// Validate the token using the JWTAuth use case
+			isValid, err := jwtAuth.IsAccessTokenValid(token)
+			if !isValid || err != nil {
+				if err != nil {
+					fmt.Printf("failed to validate token: %v", err)
+				}
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "invalid or expired token"})
+			}
 			return next(c)
 		}
 	}

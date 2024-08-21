@@ -37,7 +37,7 @@ func (s AuthService) SignIn(login, password string) (*domain.Token, error) {
 
 func (s AuthService) SignUp(credentials domain.AuthCredentials) (*domain.Token, error) {
 	isUsernameExist, err := s.authRepository.IsUsernameExist(credentials.Username)
-	if err == nil {
+	if err != nil {
 		return nil, fmt.Errorf("signup: %w", err)
 	}
 	if isUsernameExist {

@@ -45,3 +45,6 @@ CREATE INDEX idx_translation_id ON deck_translations (translation_id);
 
 --Migration add field for users table
 ALTER TABLE users ADD COLUMN refresh_token VARCHAR(255);
+
+--Migration Make username unique
+ALTER TABLE public.users ADD CONSTRAINT unique_user_name UNIQUE (user_name);

@@ -1,12 +1,14 @@
+// Implemented according to this guide https://dekh.medium.com/the-complete-guide-to-json-web-tokens-jwt-and-token-based-authentication-32501cb5125c
 package usecase
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
 	"github.com/golang-jwt/jwt"
 	"log"
-	"net/http"
 	"strconv"
 	"time"
 )
@@ -15,9 +17,7 @@ import (
 const (
 	secretKeyAccess     = "eXamp1eK3yACceS$"
 	secretKeyRefresh    = "r3Fr3S4eXamp1eK3y"
-	iss                 = "smart_dicti"
-	refreshTokenName    = "refresh_token"
-	accessTokenName     = "access_token"
+	iss                 = "smart_dictionary"
 	refreshTokenExpTime = time.Hour * 24
 	accessTokenExpTime  = time.Hour
 )
@@ -47,109 +47,71 @@ func parse(tokenString, secretKey string) (*jwt.Token, error) {
 	return token, nil
 }
 
-func (j JWTAuth) VerifyPermission(endPoint func(w http.ResponseWriter, r *http.Request)) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		accessCookie, err := r.Cookie(accessTokenName)
-		if err == nil && j.isVerifiedAccess(accessCookie.Value) {
-			endPoint(w, r)
-			return
-		}
-		refreshCookie, err := r.Cookie(refreshTokenName)
-		if err == nil && j.isVerifiedRefresh(refreshCookie.Value) {
-			username, err := j.getUsernameFromToken(refreshCookie.Value, secretKeyRefresh)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			updatedAccess, err := j.getUpdatedAccess(username)
-			if err != nil {
-				log.Println("accessCookie token :", err)
-				return
-			}
-			http.SetCookie(w, &http.Cookie{Name: accessTokenName, Value: updatedAccess})
-			endPoint(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusGone)
-	})
+func (j JWTAuth) RefreshRefreshToken(refreshToken string) (*domain.Token, error) {
+	isValid, err := j.IsRefreshTokenValid(refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate refresh token: %w", err)
+	}
+	if !isValid {
+		return nil, errors.New("invalid refresh token")
+	}
+	username, err := j.getUsernameFromToken(refreshToken, secretKeyRefresh)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get username from refresh token: %w", err)
+	}
+	updatedRefresh, err := j.GenerateRefresh(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	updatedAccess, err := j.GenerateAccess(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
+	}
+	return &domain.Token{Access: updatedAccess, Refresh: updatedRefresh}, nil
 }
 
-func (j JWTAuth) Validate(accessToken, refreshToken *string) error {
-	if j.isVerifiedAccess(*accessToken) {
-		return nil
-	}
-	if j.isVerifiedRefresh(*refreshToken) {
-		username, err := j.getUsernameFromToken(*refreshToken, secretKeyRefresh)
-		if err != nil {
-			log.Println(err)
-			return fmt.Errorf("failed to get user: %w", err)
-		}
-		updatedAccess, err := j.getUpdatedAccess(username)
-		if err != nil {
-			return fmt.Errorf("failed to update access token:%w", err)
-		}
-		accessToken = &updatedAccess
-		return nil
-	}
-	return jwt.NewValidationError("access and refresh tokens are not valid", 413)
-}
-
-func (j JWTAuth) isVerifiedAccess(access string) bool {
+func (j JWTAuth) IsAccessTokenValid(access string) (bool, error) {
 	if !j.isValidTime(access, secretKeyAccess) {
-		log.Println("access token time is over")
-		return false
+		return false, fmt.Errorf("access token time is over")
 	}
 	token, err := parse(access, secretKeyAccess)
 	if err != nil {
-		log.Printf("failed to parse access token: %v", err)
-		return false
+		return false, fmt.Errorf("failed to parse access token: %w", err)
 	}
 	jti, err := j.GetJTI(token)
 	if err != nil {
-		log.Printf("failed to get JTI: %v", err)
-		return false
+		return false, fmt.Errorf("failed to get JTI: %w", err)
 	}
 	isExist, err := j.authRepo.IsUsernameExist(jti.Username)
 	if err != nil {
-		log.Println("user hasn't been found:", err)
-		return false
+		return false, fmt.Errorf("user hasn't been found: %w", err)
 	}
-	return isExist
+	return isExist, nil
 }
 
-func (j JWTAuth) getUpdatedAccess(username string) (access string, err error) {
-	access, err = j.GenerateAccess(username)
-	if err != nil {
-		log.Printf("failed to generate access: %v", err)
-	}
-	return
-}
-
-func (j JWTAuth) isVerifiedRefresh(refresh string) bool {
+func (j JWTAuth) IsRefreshTokenValid(refresh string) (bool, error) {
 	if !j.isValidTime(refresh, secretKeyRefresh) {
-		log.Println("refresh token time is over")
-		return false
+		return false, errors.New("refresh token time is over")
 	}
 	username, err := j.getUsernameFromToken(refresh, secretKeyRefresh)
 	if err != nil {
-		log.Printf("failed to find user: %v", err)
-		return false
+		return false, fmt.Errorf("failed to find user: %w", err)
 	}
-	return username != ""
+	return username != "", nil
 }
 
-func (j JWTAuth) getUsernameFromToken(tokenString, secretKeyAccess string) (string, error) {
-	token, err := parse(tokenString, secretKeyAccess)
+func (j JWTAuth) getUsernameFromToken(tokenString, secretKey string) (string, error) {
+	token, err := parse(tokenString, secretKey)
 	if err != nil {
 		return "", fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
 	jti, err := j.GetJTI(token)
 	if err != nil {
-		return "", fmt.Errorf("could't get jti: %w", err)
+		return "", fmt.Errorf("couldn't get jti: %w", err)
 	}
 	isExist, err := j.authRepo.IsUsernameExist(jti.Username)
 	if err != nil {
-		return "", fmt.Errorf("coudn't check in database: %w", err)
+		return "", fmt.Errorf("couldn't check in database: %w", err)
 	}
 	if !isExist {
 		return "", fmt.Errorf("couldn't find the username")

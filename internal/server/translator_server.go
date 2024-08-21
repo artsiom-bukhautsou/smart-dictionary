@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
+	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -18,22 +20,22 @@ import (
 type TranslatorServer struct {
 	logger               slog.Logger
 	authService          usecase.AuthService
+	jwtService           usecase.JWTAuth
 	chatGPTAPIURL        string
 	apiKey               string
 	translatorRepository domain.TranslatorRepository
-	cardsRepository      domain.CardRepository
 }
 
 func NewTranslatorServer(
 	authService usecase.AuthService,
+	jwtService usecase.JWTAuth,
 	translatorRepository domain.TranslatorRepository,
-	cardsRepository domain.CardRepository,
 	logger slog.Logger, chatGPTAPIURL string,
 	apiKey string) *TranslatorServer {
 	return &TranslatorServer{
 		authService:          authService,
+		jwtService:           jwtService,
 		translatorRepository: translatorRepository,
-		cardsRepository:      cardsRepository,
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
@@ -112,11 +114,51 @@ func (t TranslatorServer) SignUp(c echo.Context) error {
 	return c.String(http.StatusOK, "successfully sign up")
 }
 
-func (t TranslatorServer) Translate(c echo.Context) error {
-	deckID := c.Request().Header.Get("Deck-Id")
-	if deckID == "" {
-		return c.String(http.StatusBadRequest, "Deck-Id wasn't provided")
+func (t TranslatorServer) RefreshRefreshToken(c echo.Context) error {
+	req := c.Request()
+	refreshTokenCookie, err := req.Cookie("refresh_token")
+	if err != nil {
+		if errors.Is(err, http.ErrNoCookie) {
+			log.Println("refresh token cookie not found")
+			return c.JSON(http.StatusUnauthorized, map[string]string{"message": "refresh token not found"})
+		}
+		log.Println("error retrieving refresh token cookie:", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal server error"})
 	}
+	refreshToken := refreshTokenCookie.Value
+	updatedTokens, err := t.jwtService.RefreshRefreshToken(refreshToken)
+	if err != nil {
+		log.Println("error refreshing refresh token:", err)
+		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "failed to refresh refresh token"})
+	}
+
+	// Set access token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "access_token",
+		Value:    updatedTokens.Access,
+		Path:     "/",
+		Domain:   "",                            // Set to your domain if needed
+		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                         // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Set refresh token cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "refresh_token",
+		Value:    updatedTokens.Refresh,
+		Path:     "/",
+		Domain:   "",                             // Set to your domain if needed
+		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
+		Secure:   false,                          // Set to true if using HTTPS
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return c.String(http.StatusOK, "successfully refreshed tokens")
+}
+
+func (t TranslatorServer) Translate(c echo.Context) error {
 	var req domain.RequestMessage
 	err := c.Bind(&req)
 	if err != nil {
@@ -128,12 +170,6 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	if translation != nil {
-		go func() {
-			err = t.cardsRepository.CreateCard(deckID, wordTranslationToMarkdown(*translation))
-			if err != nil {
-				t.logger.Error(err.Error())
-			}
-		}()
 		return c.JSON(http.StatusOK, translation)
 	}
 	message, err := t.callChatGPTAPI("Translate the word, provide response in the following json format: word(string), meaning (string), examples (string array size 2), russianTranslation (string), meaningRussian (string) examplesRussian (string array size 2). Word to translate:" + req.Word)
@@ -144,12 +180,6 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		err = t.translatorRepository.AddWordTranslation(context.Background(), *message)
 		if err != nil {
 			t.logger.Error(err.Error())
-		}
-		err = t.cardsRepository.CreateCard(deckID, wordTranslationToMarkdown(*message))
-		if err != nil {
-			if err != nil {
-				t.logger.Error(err.Error())
-			}
 		}
 	}()
 	return c.JSON(http.StatusOK, message)
@@ -193,51 +223,4 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation
 	}
 
 	return &wordTranslation, nil
-}
-
-func wordTranslationToMarkdown(wt domain.WordTranslation) string {
-	var markdownBuilder strings.Builder
-
-	// Word and horizontal line
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n---\n\n", wt.Word))
-
-	// Bold formatting for headers
-	bold := func(s string) string {
-		return fmt.Sprintf("**%s**", s)
-	}
-
-	// Heading with the word
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", bold(wt.Word)))
-
-	// Meaning section
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Meaning")))
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.Meaning))
-
-	// Examples section
-	if len(wt.Examples) > 0 {
-		markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Examples")))
-		for _, example := range wt.Examples {
-			markdownBuilder.WriteString(fmt.Sprintf("- %s\n", example))
-		}
-		markdownBuilder.WriteString("\n")
-	}
-
-	// Russian Translation section
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Russian Translation")))
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.RussianTranslation))
-
-	// Meaning in Russian section
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Meaning in Russian")))
-	markdownBuilder.WriteString(fmt.Sprintf("%s\n\n", wt.MeaningRussian))
-
-	// Examples in Russian section
-	if len(wt.ExamplesRussian) > 0 {
-		markdownBuilder.WriteString(fmt.Sprintf("%s\n", bold("Examples in Russian")))
-		for _, exampleRussian := range wt.ExamplesRussian {
-			markdownBuilder.WriteString(fmt.Sprintf("- %s\n", exampleRussian))
-		}
-		markdownBuilder.WriteString("\n")
-	}
-
-	return markdownBuilder.String()
 }
