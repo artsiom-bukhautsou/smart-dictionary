@@ -18,23 +18,32 @@ import (
 )
 
 type TranslatorServer struct {
-	logger               slog.Logger
+	logger slog.Logger
+
 	authService          usecase.AuthService
 	jwtService           usecase.JWTAuth
-	chatGPTAPIURL        string
-	apiKey               string
+	refreshTokenDuration time.Duration
+	accessTokenDuration  time.Duration
+
+	chatGPTAPIURL string
+	apiKey        string
+
 	translatorRepository domain.TranslatorRepository
 }
 
 func NewTranslatorServer(
 	authService usecase.AuthService,
 	jwtService usecase.JWTAuth,
+	accessTokenDuration time.Duration,
+	refreshTokenDuration time.Duration,
 	translatorRepository domain.TranslatorRepository,
 	logger slog.Logger, chatGPTAPIURL string,
 	apiKey string) *TranslatorServer {
 	return &TranslatorServer{
 		authService:          authService,
 		jwtService:           jwtService,
+		accessTokenDuration:  accessTokenDuration,
+		refreshTokenDuration: refreshTokenDuration,
 		translatorRepository: translatorRepository,
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
@@ -46,35 +55,15 @@ func (t TranslatorServer) SignIn(c echo.Context) error {
 	var creds domain.AuthCredentials
 	err := c.Bind(&creds)
 	if err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
+		t.logger.Error("signin - failed to convert", slog.Any("err", err.Error()))
+		return c.String(http.StatusBadRequest, "invalid input")
 	}
 	token, err := t.authService.SignIn(creds.Username, creds.Password)
 	if err != nil {
-		return c.String(http.StatusUnauthorized, err.Error())
+		t.logger.Error("failed to signin", slog.Any("err", err.Error()))
+		return c.String(http.StatusUnauthorized, "unauthorized")
 	}
-	// Set access token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
-		Value:    token.Access,
-		Path:     "/",
-		Domain:   "",                            // Set to your domain if needed
-		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                         // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// Set refresh token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
-		Value:    token.Refresh,
-		Path:     "/",
-		Domain:   "",                             // Set to your domain if needed
-		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                          // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	t.enrichAuthToken(c, token)
 	return c.String(http.StatusOK, "successfully authenticated")
 }
 
@@ -82,35 +71,15 @@ func (t TranslatorServer) SignUp(c echo.Context) error {
 	var creds domain.AuthCredentials
 	err := c.Bind(&creds)
 	if err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
+		t.logger.Error("signup - failed to convert", slog.Any("err", err.Error()))
+		return c.String(http.StatusBadRequest, "invalid input")
 	}
 	token, err := t.authService.SignUp(creds)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		t.logger.Error("failed to signup", slog.Any("err", err.Error()))
+		return c.String(http.StatusInternalServerError, "failed to Sign-Up")
 	}
-	// Set access token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
-		Value:    token.Access,
-		Path:     "/",
-		Domain:   "",                            // Set to your domain if needed
-		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                         // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// Set refresh token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
-		Value:    token.Refresh,
-		Path:     "/",
-		Domain:   "",                             // Set to your domain if needed
-		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                          // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	t.enrichAuthToken(c, token)
 	return c.String(http.StatusOK, "successfully sign up")
 }
 
@@ -132,29 +101,7 @@ func (t TranslatorServer) RefreshRefreshToken(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "failed to refresh refresh token"})
 	}
 
-	// Set access token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
-		Value:    updatedTokens.Access,
-		Path:     "/",
-		Domain:   "",                            // Set to your domain if needed
-		Expires:  time.Now().Add(1 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                         // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// Set refresh token cookie
-	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
-		Value:    updatedTokens.Refresh,
-		Path:     "/",
-		Domain:   "",                             // Set to your domain if needed
-		Expires:  time.Now().Add(24 * time.Hour), // Set expiration as per your requirements
-		Secure:   false,                          // Set to true if using HTTPS
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	t.enrichAuthToken(c, updatedTokens)
 	return c.String(http.StatusOK, "successfully refreshed tokens")
 }
 
@@ -162,19 +109,22 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	var req domain.RequestMessage
 	err := c.Bind(&req)
 	if err != nil {
-		return c.String(http.StatusBadRequest, err.Error())
+		t.logger.Error("translate - failed to convert", slog.Any("err", err.Error()))
+		return c.String(http.StatusBadRequest, "invalid input")
 	}
 	req.Word = strings.ToLower(req.Word)
 	translation, err := t.translatorRepository.GetWordTranslation(c.Request().Context(), req.Word)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		t.logger.Error("failed to get translation", slog.Any("err", err.Error()))
+		return c.String(http.StatusInternalServerError, "server error try again later")
 	}
 	if translation != nil {
 		return c.JSON(http.StatusOK, translation)
 	}
 	message, err := t.callChatGPTAPI("Translate the word, provide response in the following json format: word(string), meaning (string), examples (string array size 2), russianTranslation (string), meaningRussian (string) examplesRussian (string array size 2). Word to translate:" + req.Word)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		t.logger.Error("failed to make a call to chatgpt", slog.Any("err", err.Error()))
+		return c.String(http.StatusInternalServerError, "server error try again later")
 	}
 	go func() {
 		err = t.translatorRepository.AddWordTranslation(context.Background(), *message)
@@ -223,4 +173,27 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation
 	}
 
 	return &wordTranslation, nil
+}
+
+func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
+	c.SetCookie(&http.Cookie{
+		Name:     "access_token",
+		Value:    token.Access,
+		Path:     "/",
+		Domain:   "",                                    // Set to your domain if needed
+		Expires:  time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
+		Secure:   false,                                 // Set to true if using HTTPS
+		HttpOnly: false,                                 // to be able to take cookies by frontend
+		SameSite: http.SameSiteLaxMode,
+	})
+	c.SetCookie(&http.Cookie{
+		Name:     "refresh_token",
+		Value:    token.Refresh,
+		Path:     "/",
+		Domain:   "",                                     // Set to your domain if needed
+		Expires:  time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
+		Secure:   false,                                  // Set to true if using HTTPS
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

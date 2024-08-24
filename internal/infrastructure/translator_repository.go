@@ -3,16 +3,16 @@ package infrastructure
 import (
 	"context"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"strings"
 )
 
 type translationRepository struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 }
 
 // NewTranslationRepository creates a new instance of translationRepository
-func NewTranslationRepository(conn *pgx.Conn) *translationRepository {
+func NewTranslationRepository(conn *pgxpool.Pool) *translationRepository {
 	return &translationRepository{conn: conn}
 }
 

@@ -13,31 +13,41 @@ import (
 	"time"
 )
 
-// TODO: Rewrite to the env variables
-const (
-	secretKeyAccess     = "eXamp1eK3yACceS$"
-	secretKeyRefresh    = "r3Fr3S4eXamp1eK3y"
-	iss                 = "smart_dictionary"
-	refreshTokenExpTime = time.Hour * 24
-	accessTokenExpTime  = time.Hour
-)
-
 type JTI struct {
 	Username string `json:"username"`
 }
 
 type JWTAuth struct {
-	authRepo infrastructure.AuthRepository
+	authRepo            infrastructure.AuthRepository
+	secretKeyAccess     string
+	secretKeyRefresh    string
+	iss                 string
+	refreshTokenExpTime time.Duration
+	accessTokenExpTime  time.Duration
 }
 
-func NewJWTAuth(authRepo infrastructure.AuthRepository) *JWTAuth {
-	return &JWTAuth{authRepo: authRepo}
+func NewJWTAuth(
+	authRepo infrastructure.AuthRepository,
+	secretKeyAccess string,
+	secretKeyRefresh string,
+	iss string,
+	refreshTokenExpTime time.Duration,
+	accessTokenExpTime time.Duration,
+) *JWTAuth {
+	return &JWTAuth{
+		authRepo:            authRepo,
+		secretKeyAccess:     secretKeyAccess,
+		secretKeyRefresh:    secretKeyRefresh,
+		iss:                 iss,
+		refreshTokenExpTime: refreshTokenExpTime,
+		accessTokenExpTime:  accessTokenExpTime,
+	}
 }
 
 func parse(tokenString, secretKey string) (*jwt.Token, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(secretKey), nil
 	})
@@ -55,7 +65,7 @@ func (j JWTAuth) RefreshRefreshToken(refreshToken string) (*domain.Token, error)
 	if !isValid {
 		return nil, errors.New("invalid refresh token")
 	}
-	username, err := j.getUsernameFromToken(refreshToken, secretKeyRefresh)
+	username, err := j.getUsernameFromToken(refreshToken, j.secretKeyRefresh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get username from refresh token: %w", err)
 	}
@@ -71,10 +81,10 @@ func (j JWTAuth) RefreshRefreshToken(refreshToken string) (*domain.Token, error)
 }
 
 func (j JWTAuth) IsAccessTokenValid(access string) (bool, error) {
-	if !j.isValidTime(access, secretKeyAccess) {
+	if !j.isValidTime(access, j.secretKeyAccess) {
 		return false, fmt.Errorf("access token time is over")
 	}
-	token, err := parse(access, secretKeyAccess)
+	token, err := parse(access, j.secretKeyAccess)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse access token: %w", err)
 	}
@@ -90,10 +100,10 @@ func (j JWTAuth) IsAccessTokenValid(access string) (bool, error) {
 }
 
 func (j JWTAuth) IsRefreshTokenValid(refresh string) (bool, error) {
-	if !j.isValidTime(refresh, secretKeyRefresh) {
+	if !j.isValidTime(refresh, j.secretKeyRefresh) {
 		return false, errors.New("refresh token time is over")
 	}
-	username, err := j.getUsernameFromToken(refresh, secretKeyRefresh)
+	username, err := j.getUsernameFromToken(refresh, j.secretKeyRefresh)
 	if err != nil {
 		return false, fmt.Errorf("failed to find user: %w", err)
 	}
@@ -159,12 +169,12 @@ func (j JWTAuth) GenerateAccess(username string) (tokenString string, err error)
 		return "", fmt.Errorf("failed to marshal access JTI: %w", err)
 	}
 	claims := jwt.StandardClaims{
-		Issuer:    iss,
+		Issuer:    j.iss,
 		Id:        string(jti),
-		ExpiresAt: time.Now().Add(accessTokenExpTime).Unix(),
+		ExpiresAt: time.Now().Add(j.accessTokenExpTime).Unix(),
 	}
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
-	token, err := rawToken.SignedString([]byte(secretKeyAccess))
+	token, err := rawToken.SignedString([]byte(j.secretKeyAccess))
 	if err != nil {
 		return "", err
 	}
@@ -177,12 +187,12 @@ func (j JWTAuth) GenerateRefresh(username string) (tokenString string, err error
 		return "", fmt.Errorf("failed to marshal refresh JTI: %w", err)
 	}
 	claims := jwt.StandardClaims{
-		Issuer:    iss,
+		Issuer:    j.iss,
 		Id:        string(jti),
-		ExpiresAt: time.Now().Add(refreshTokenExpTime).Unix(),
+		ExpiresAt: time.Now().Add(j.refreshTokenExpTime).Unix(),
 	}
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
-	token, err := rawToken.SignedString([]byte(secretKeyRefresh))
+	token, err := rawToken.SignedString([]byte(j.secretKeyRefresh))
 	if err != nil {
 		return "", fmt.Errorf("GenerateRefresh error: %w", err)
 	}

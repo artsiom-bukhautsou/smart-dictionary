@@ -2,17 +2,19 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthRepository struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 }
 
-func NewAuthRepository(conn *pgx.Conn) *AuthRepository {
+func NewAuthRepository(conn *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{conn: conn}
 }
 
@@ -30,7 +32,7 @@ func (ur *AuthRepository) SignIn(userName string, password string) error {
 }
 
 func (ur *AuthRepository) UpdateRefreshToken(username, refreshToken string) error {
-	result, err := ur.conn.Exec(context.Background(), "UPDATE users SET refresh_token = $1 WHERE username = $2", refreshToken, username)
+	result, err := ur.conn.Exec(context.Background(), "UPDATE users SET refresh_token = $1 WHERE user_name = $2", refreshToken, username)
 	if err != nil {
 		return fmt.Errorf("failed to update refresh token: %w", err)
 	}
@@ -41,13 +43,16 @@ func (ur *AuthRepository) UpdateRefreshToken(username, refreshToken string) erro
 }
 
 func (ur *AuthRepository) IsUsernameExist(userName string) (bool, error) {
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM users WHERE user_name = $1)"
-	err := ur.conn.QueryRow(context.Background(), query, userName).Scan(&exists)
-
+	var username string
+	query := "SELECT user_name FROM users WHERE user_name = $1"
+	err := ur.conn.QueryRow(context.Background(), query, userName).Scan(&username)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("could not check user existence: %w", err)
 	}
+	exists := username != ""
 	return exists, nil
 }
 

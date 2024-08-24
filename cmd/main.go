@@ -6,47 +6,84 @@ import (
 	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
 	"github.com/bukhavtsov/artems-dictionary/internal/server"
 	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 var (
-	chatGPTAPIURL    = os.Getenv("CHAT_GPT_API_URL")
-	apiKey           = os.Getenv("OPEN_AI_API_KEY")
-	PostgresUserName = os.Getenv("POSTGRES_USERNAME")
-	PostgresPassword = os.Getenv("POSTGRES_PASSWORD")
-	PostgresPort     = os.Getenv("POSTGRES_PORT")
-	PostgresHost     = os.Getenv("POSTGRES_HOST")
-	PostgresDBName   = os.Getenv("POSTGRES_DBNAME")
+	chatGPTAPIURL = os.Getenv("CHAT_GPT_API_URL")
+	apiKey        = os.Getenv("OPEN_AI_API_KEY")
+
+	postgresUserName = os.Getenv("POSTGRES_USERNAME")
+	postgresPassword = os.Getenv("POSTGRES_PASSWORD")
+	postgresPort     = os.Getenv("POSTGRES_PORT")
+	postgresHost     = os.Getenv("POSTGRES_HOST")
+	postgresDBName   = os.Getenv("POSTGRES_DBNAME")
+
+	jwtSecretKeyAccess     = os.Getenv("JWT_SECRET_KEY_ACCESS")
+	jwtSecretKeyRefresh    = os.Getenv("JWT_SECRET_KEY_REFRESH")
+	jwtIss                 = os.Getenv("JWT_ISS")
+	jwtRefreshTokenExpTime = os.Getenv("JWT_REFRESH_TOKEN_EXP_TIME")
+	jwtAccessTokenExpTime  = os.Getenv("JWT_ACCESS_TOKEN_EXP_TIME")
+
+	allowOrigins = os.Getenv("ALLOW_ORIGINS")
 )
 
 func main() {
 	e := echo.New()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	connString := "postgres://" + PostgresUserName + ":" + PostgresPassword + "@" + PostgresHost + ":" + PostgresPort + "/" + PostgresDBName
-	conn, err := pgx.Connect(context.Background(), connString)
+	connString := "postgres://" + postgresUserName + ":" + postgresPassword + "@" + postgresHost + ":" + postgresPort + "/" + postgresDBName
+	conn, err := pgxpool.New(context.Background(), connString)
 	if err != nil {
-		fmt.Println("Unable to connect to the database:", err)
+		logger.Error("Unable to connect to the database", slog.Any("err", err))
 		return
 	}
-	defer conn.Close(context.Background())
+
+	jwtRefreshTokenExpTimeDuration, err := time.ParseDuration(jwtRefreshTokenExpTime)
+	if err != nil {
+		logger.Error("Unable to parse JWT_REFRESH_TOKEN_EXP_TIME", slog.Any("err", err))
+		return
+	}
+	jwtAccessTokenExpTimeDuration, err := time.ParseDuration(jwtAccessTokenExpTime)
+	if err != nil {
+		logger.Error("Unable to parse JWT_ACCESS_TOKEN_EXP_TIME", slog.Any("err", err))
+		return
+	}
+	originsList := strings.Split(allowOrigins, ",")
+	fmt.Println(originsList)
 
 	authRepository := infrastructure.NewAuthRepository(conn)
-	jwtAuth := usecase.NewJWTAuth(*authRepository)
+	jwtAuth := usecase.NewJWTAuth(
+		*authRepository,
+		jwtSecretKeyAccess,
+		jwtSecretKeyRefresh,
+		jwtIss,
+		jwtRefreshTokenExpTimeDuration,
+		jwtAccessTokenExpTimeDuration,
+	)
 	authService := usecase.NewAuthService(*authRepository, *jwtAuth)
 	translationRepository := infrastructure.NewTranslationRepository(conn)
-	translatorServer := server.NewTranslatorServer(*authService, *jwtAuth, translationRepository, *logger, chatGPTAPIURL, apiKey)
+	translatorServer := server.NewTranslatorServer(
+		*authService,
+		*jwtAuth,
+		jwtAccessTokenExpTimeDuration,
+		jwtRefreshTokenExpTimeDuration,
+		translationRepository,
+		*logger,
+		chatGPTAPIURL,
+		apiKey,
+	)
 
-	apiGroup := e.Group("/server")
+	apiGroup := e.Group("/api")
 	apiGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
+			AllowOrigins:     originsList,
 			AllowCredentials: true,
 		}),
 		ValidateAccessToken(*jwtAuth),
@@ -56,8 +93,7 @@ func main() {
 	authGroup := e.Group("/auth")
 	authGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+			AllowOrigins:     originsList,
 			AllowCredentials: true,
 		}),
 	)
