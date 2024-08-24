@@ -3,65 +3,128 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/bukhavtsov/artems-dictionary/internal/api"
-	"github.com/bukhavtsov/artems-dictionary/internal/repository"
-	"github.com/bukhavtsov/artems-dictionary/internal/service"
-	"github.com/jackc/pgx/v5"
+	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
+	"github.com/bukhavtsov/artems-dictionary/internal/server"
+	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 )
 
 var (
-	chatGPTAPIURL     = os.Getenv("CHAT_GPT_API_URL")
-	apiKey            = os.Getenv("OPEN_AI_API_KEY")
-	PostgresUserName  = os.Getenv("POSTGRES_USERNAME")
-	PostgresPassword  = os.Getenv("POSTGRES_PASSWORD")
-	PostgresPort      = os.Getenv("POSTGRES_PORT")
-	PostgresHost      = os.Getenv("POSTGRES_HOST")
-	PostgresDBName    = os.Getenv("POSTGRES_DBNAME")
-	MochiCardsBaseURL = os.Getenv("MOCHI_CARDS_BASE_URL")
-	MochiToken        = os.Getenv("MOCHI_TOKEN")
+	chatGPTAPIURL = os.Getenv("CHAT_GPT_API_URL")
+	apiKey        = os.Getenv("OPEN_AI_API_KEY")
+
+	postgresUserName = os.Getenv("POSTGRES_USERNAME")
+	postgresPassword = os.Getenv("POSTGRES_PASSWORD")
+	postgresPort     = os.Getenv("POSTGRES_PORT")
+	postgresHost     = os.Getenv("POSTGRES_HOST")
+	postgresDBName   = os.Getenv("POSTGRES_DBNAME")
+
+	jwtSecretKeyAccess     = os.Getenv("JWT_SECRET_KEY_ACCESS")
+	jwtSecretKeyRefresh    = os.Getenv("JWT_SECRET_KEY_REFRESH")
+	jwtIss                 = os.Getenv("JWT_ISS")
+	jwtRefreshTokenExpTime = os.Getenv("JWT_REFRESH_TOKEN_EXP_TIME")
+	jwtAccessTokenExpTime  = os.Getenv("JWT_ACCESS_TOKEN_EXP_TIME")
+
+	allowOrigins = os.Getenv("ALLOW_ORIGINS")
 )
 
 func main() {
 	e := echo.New()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	connString := "postgres://" + PostgresUserName + ":" + PostgresPassword + "@" + PostgresHost + ":" + PostgresPort + "/" + PostgresDBName
-	conn, err := pgx.Connect(context.Background(), connString)
+	connString := "postgres://" + postgresUserName + ":" + postgresPassword + "@" + postgresHost + ":" + postgresPort + "/" + postgresDBName
+	conn, err := pgxpool.New(context.Background(), connString)
 	if err != nil {
-		fmt.Println("Unable to connect to the database:", err)
+		logger.Error("Unable to connect to the database", slog.Any("err", err))
 		return
 	}
-	defer conn.Close(context.Background())
 
-	userRepository := repository.NewUserRepository(conn)
-	authService := service.NewAuthService(userRepository)
-	flashCardsRepository := repository.NewMochiCardRepository(MochiCardsBaseURL, MochiToken)
-	translationRepository := repository.NewTranslationRepository(conn)
-	translatorServer := api.NewTranslatorServer(*authService, translationRepository, flashCardsRepository, *logger, chatGPTAPIURL, apiKey)
+	jwtRefreshTokenExpTimeDuration, err := time.ParseDuration(jwtRefreshTokenExpTime)
+	if err != nil {
+		logger.Error("Unable to parse JWT_REFRESH_TOKEN_EXP_TIME", slog.Any("err", err))
+		return
+	}
+	jwtAccessTokenExpTimeDuration, err := time.ParseDuration(jwtAccessTokenExpTime)
+	if err != nil {
+		logger.Error("Unable to parse JWT_ACCESS_TOKEN_EXP_TIME", slog.Any("err", err))
+		return
+	}
+	originsList := strings.Split(allowOrigins, ",")
+	fmt.Println(originsList)
+
+	authRepository := infrastructure.NewAuthRepository(conn)
+	jwtAuth := usecase.NewJWTAuth(
+		*authRepository,
+		jwtSecretKeyAccess,
+		jwtSecretKeyRefresh,
+		jwtIss,
+		jwtRefreshTokenExpTimeDuration,
+		jwtAccessTokenExpTimeDuration,
+	)
+	authService := usecase.NewAuthService(*authRepository, *jwtAuth)
+	translationRepository := infrastructure.NewTranslationRepository(conn)
+	translatorServer := server.NewTranslatorServer(
+		*authService,
+		*jwtAuth,
+		jwtAccessTokenExpTimeDuration,
+		jwtRefreshTokenExpTimeDuration,
+		translationRepository,
+		*logger,
+		chatGPTAPIURL,
+		apiKey,
+	)
 
 	apiGroup := e.Group("/api")
 	apiGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "Deck-Id"},
+			AllowOrigins:     originsList,
 			AllowCredentials: true,
 		}),
-		middleware.BasicAuth(authService.BasicAuth),
+		ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 
 	authGroup := e.Group("/auth")
 	authGroup.Use(
 		middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins:     []string{"*"},
-			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+			AllowOrigins:     originsList,
 			AllowCredentials: true,
 		}),
 	)
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
+	authGroup.POST("/refresh", translatorServer.RefreshRefreshToken)
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
+}
+
+func ValidateAccessToken(jwtAuth usecase.JWTAuth) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			auth := req.Header.Get("Authorization")
+			if auth == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+			}
+			// Token usually comes as "Bearer <token>", so we split to get the actual token part
+			token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
+			if token == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+			}
+			// Validate the token using the JWTAuth use case
+			isValid, err := jwtAuth.IsAccessTokenValid(token)
+			if !isValid || err != nil {
+				if err != nil {
+					fmt.Printf("failed to validate token: %v", err)
+				}
+				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "invalid or expired token"})
+			}
+			return next(c)
+		}
+	}
 }

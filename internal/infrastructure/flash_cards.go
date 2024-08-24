@@ -1,4 +1,4 @@
-package repository
+package infrastructure
 
 import (
 	"bytes"
@@ -31,7 +31,7 @@ func NewMochiCardRepository(baseURL, token string) *MochiCardRepository {
 
 // CreateCard sends a request to create a card using the provided data
 func (m MochiCardRepository) CreateCard(deckID, content string) error {
-	url := m.BaseURL + "/api/cards/"
+	url := m.BaseURL + "/server/cards/"
 	headers := map[string]string{
 		"Content-Type":  "application/json",
 		"Authorization": m.generateBasicAuthHeader(),
