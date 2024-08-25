@@ -73,3 +73,16 @@ func (ur *AuthRepository) SignUp(creds domain.AuthCredentials) error {
 	}
 	return nil
 }
+
+func (ur *AuthRepository) RemoveUser(username string) error {
+	result, err := ur.conn.Exec(
+		context.Background(), "DELETE FROM users WHERE user_name = $1", username)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("no user found with username: %s", username)
+	}
+	return nil
+}

@@ -89,6 +89,7 @@ func main() {
 		ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
+	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
 
 	authGroup := e.Group("/auth")
 	authGroup.Use(

@@ -197,3 +197,26 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+func (t TranslatorServer) DeleteUsersAccount(c echo.Context) error {
+	auth := c.Request().Header.Get("Authorization")
+	if auth == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+	// Token usually comes as "Bearer <token>", so we split to get the actual token part
+	token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+	username, err := t.jwtService.GetUsernameFromAccessToken(token)
+	if err != nil {
+		t.logger.Error("failed to get username from access token", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
+	}
+	err = t.authService.DeleteUser(username)
+	if err != nil {
+		t.logger.Error("failed to delete user from the database", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
+	}
+	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", username))
+}

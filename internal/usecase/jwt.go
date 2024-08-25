@@ -110,6 +110,10 @@ func (j JWTAuth) IsRefreshTokenValid(refresh string) (bool, error) {
 	return username != "", nil
 }
 
+func (j JWTAuth) GetUsernameFromAccessToken(token string) (string, error) {
+	return j.getUsernameFromToken(token, j.secretKeyAccess)
+}
+
 func (j JWTAuth) getUsernameFromToken(tokenString, secretKey string) (string, error) {
 	token, err := parse(tokenString, secretKey)
 	if err != nil {
