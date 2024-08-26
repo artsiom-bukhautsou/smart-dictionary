@@ -28,7 +28,7 @@ type TranslatorServer struct {
 	chatGPTAPIURL string
 	apiKey        string
 
-	translatorRepository domain.TranslatorRepository
+	translatorRepository TranslatorRepository
 }
 
 func NewTranslatorServer(
@@ -36,7 +36,7 @@ func NewTranslatorServer(
 	jwtService usecase.JWTAuth,
 	accessTokenDuration time.Duration,
 	refreshTokenDuration time.Duration,
-	translatorRepository domain.TranslatorRepository,
+	translatorRepository TranslatorRepository,
 	logger slog.Logger, chatGPTAPIURL string,
 	apiKey string) *TranslatorServer {
 	return &TranslatorServer{
@@ -49,6 +49,12 @@ func NewTranslatorServer(
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
 	}
+}
+
+type TranslatorRepository interface {
+	AddTranslation(ctx context.Context, translation domain.Translation, translatedFrom, translatedTo string) error
+	GetAllTranslations(ctx context.Context) ([]domain.Translation, error)
+	GetTranslation(ctx context.Context, lexicalItem, translateFrom, translateTo string) (*domain.Translation, error)
 }
 
 func (t TranslatorServer) SignIn(c echo.Context) error {
@@ -106,14 +112,20 @@ func (t TranslatorServer) RefreshRefreshToken(c echo.Context) error {
 }
 
 func (t TranslatorServer) Translate(c echo.Context) error {
-	var req domain.RequestMessage
+	var req domain.TranslationRequest
 	err := c.Bind(&req)
 	if err != nil {
 		t.logger.Error("translate - failed to convert", slog.Any("err", err.Error()))
 		return c.String(http.StatusBadRequest, "invalid input")
 	}
-	req.Word = strings.ToLower(req.Word)
-	translation, err := t.translatorRepository.GetWordTranslation(c.Request().Context(), req.Word)
+	if _, ok := domain.SupportedLanguages[req.TranslateFrom]; !ok {
+		return c.String(http.StatusBadRequest, "original language is not supported")
+	}
+	if _, ok := domain.SupportedLanguages[req.TranslateTo]; !ok {
+		return c.String(http.StatusBadRequest, "target language is not supported")
+	}
+	req.LexicalItem = strings.ToLower(req.LexicalItem)
+	translation, err := t.translatorRepository.GetTranslation(c.Request().Context(), req.LexicalItem, req.TranslateFrom, req.TranslateTo)
 	if err != nil {
 		t.logger.Error("failed to get translation", slog.Any("err", err.Error()))
 		return c.String(http.StatusInternalServerError, "server error try again later")
@@ -121,21 +133,26 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	if translation != nil {
 		return c.JSON(http.StatusOK, translation)
 	}
-	message, err := t.callChatGPTAPI("Translate the word, provide response in the following json format: word(string), meaning (string), examples (string array size 2), russianTranslation (string), meaningRussian (string) examplesRussian (string array size 2). Word to translate:" + req.Word)
+	promptTemplate := "Translate the lexical item: '%s', from '%s' to '%s'. Provide response in JSON format as follows: translatedFrom: string; translatedTo: string; originalLexicalItem: string; originalMeaning: string; originalExamples: [string, string]; translatedLexicalItem: string; translatedMeaning: string; translatedExamples: [string, string];. Ensure that 'originalMeaning' is in the original language ('translatedFrom')."
+	prompt := fmt.Sprintf(promptTemplate, req.LexicalItem, req.TranslateFrom, req.TranslateTo)
+	lexicalItem, err := t.callChatGPTAPI(prompt)
 	if err != nil {
 		t.logger.Error("failed to make a call to chatgpt", slog.Any("err", err.Error()))
 		return c.String(http.StatusInternalServerError, "server error try again later")
 	}
+	if domain.IsTranslationNilOrEmpty(lexicalItem) {
+		return c.String(http.StatusBadRequest, "couldn't translate")
+	}
 	go func() {
-		err = t.translatorRepository.AddWordTranslation(context.Background(), *message)
+		err = t.translatorRepository.AddTranslation(context.Background(), *lexicalItem, req.TranslateFrom, req.TranslateTo)
 		if err != nil {
 			t.logger.Error(err.Error())
 		}
 	}()
-	return c.JSON(http.StatusOK, message)
+	return c.JSON(http.StatusOK, lexicalItem)
 }
 
-func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation, error) {
+func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, error) {
 	requestBody := fmt.Sprintf(`{"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "%s"}]}`, prompt)
 
 	req, err := http.NewRequest("POST", t.chatGPTAPIURL, bytes.NewBuffer([]byte(requestBody)))
@@ -166,11 +183,13 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.WordTranslation
 		return nil, fmt.Errorf("expected number of choices is 1, actual %d", len(chatGPTResp.Choices))
 	}
 
-	var wordTranslation domain.WordTranslation
+	var wordTranslation domain.Translation
 	err = json.Unmarshal([]byte(chatGPTResp.Choices[0].Message.Content), &wordTranslation)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding JSON: %w, received string is: %s", err, chatGPTResp.Choices[0].Message.Content)
 	}
+
+	// TODO: check case with error
 
 	return &wordTranslation, nil
 }
@@ -196,4 +215,27 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func (t TranslatorServer) DeleteUsersAccount(c echo.Context) error {
+	auth := c.Request().Header.Get("Authorization")
+	if auth == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+	// Token usually comes as "Bearer <token>", so we split to get the actual token part
+	token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+	username, err := t.jwtService.GetUsernameFromAccessToken(token)
+	if err != nil {
+		t.logger.Error("failed to get username from access token", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
+	}
+	err = t.authService.DeleteUser(username)
+	if err != nil {
+		t.logger.Error("failed to delete user from the database", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
+	}
+	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", username))
 }

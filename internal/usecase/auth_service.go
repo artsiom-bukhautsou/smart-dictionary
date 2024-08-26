@@ -57,3 +57,11 @@ func (s AuthService) SignUp(credentials domain.AuthCredentials) (*domain.Token, 
 	}
 	return &domain.Token{Access: access, Refresh: credentials.RefreshToken}, nil
 }
+
+func (s AuthService) DeleteUser(username string) error {
+	err := s.authRepository.RemoveUser(username)
+	if err != nil {
+		return fmt.Errorf("failed to remove user: %w", err)
+	}
+	return nil
+}

@@ -2,9 +2,10 @@ package infrastructure
 
 import (
 	"context"
+	"strings"
+
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"strings"
 )
 
 type translationRepository struct {
@@ -16,21 +17,31 @@ func NewTranslationRepository(conn *pgxpool.Pool) *translationRepository {
 	return &translationRepository{conn: conn}
 }
 
-// AddWordTranslation inserts a message into the database
-func (t *translationRepository) AddWordTranslation(ctx context.Context, translation domain.WordTranslation) error {
+// AddTranslation inserts a translation into the database
+func (t *translationRepository) AddTranslation(ctx context.Context, translation domain.Translation, translatedFrom, translatedTo string) error {
 	_, err := t.conn.Exec(ctx, `
-		INSERT INTO translations(word, meaning, examples, russian_translation, meaning_russian, examples_russian)
-		VALUES($1, $2, $3, $4, $5, $6)
-	`, translation.Word, translation.Meaning, translation.Examples, translation.RussianTranslation, translation.MeaningRussian, translation.ExamplesRussian)
+		INSERT INTO translations(lexical_item, meaning, examples, translated_from, translated_to, translated_lexical_item, translated_meaning, translated_examples)
+		VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+	`,
+		translation.OriginalLexicalItem,
+		translation.OriginalMeaning,
+		translation.OriginalExamples,
+		translatedFrom,
+		translatedTo,
+		translation.TranslatedLexicalItem,
+		translation.TranslatedMeaning,
+		translation.TranslatedExamples,
+	)
 
 	return err
 }
 
-func (t *translationRepository) GetAllWordTranslations(ctx context.Context) ([]domain.WordTranslation, error) {
-	var messages []domain.WordTranslation
+// GetAllTranslations retrieves all translations from the database
+func (t *translationRepository) GetAllTranslations(ctx context.Context) ([]domain.Translation, error) {
+	var translations []domain.Translation
 
 	rows, err := t.conn.Query(ctx, `
-		SELECT word, meaning, examples, russian_translation, meaning_russian, examples_russian
+		SELECT lexical_item, meaning, examples, translated_from, translated_to, translated_lexical_item, translated_meaning, translated_examples
 		FROM translations
 	`)
 	if err != nil {
@@ -39,33 +50,52 @@ func (t *translationRepository) GetAllWordTranslations(ctx context.Context) ([]d
 	defer rows.Close()
 
 	for rows.Next() {
-		var translation domain.WordTranslation
-		err := rows.Scan(&translation.Word, &translation.Meaning, &translation.Examples, &translation.RussianTranslation, &translation.MeaningRussian, &translation.ExamplesRussian)
+		var translation domain.Translation
+		err := rows.Scan(
+			&translation.OriginalLexicalItem,
+			&translation.OriginalMeaning,
+			&translation.OriginalExamples,
+			&translation.TranslatedFrom,
+			&translation.TranslatedTo,
+			&translation.TranslatedLexicalItem,
+			&translation.TranslatedMeaning,
+			&translation.TranslatedExamples,
+		)
 		if err != nil {
 			return nil, err
 		}
-		messages = append(messages, translation)
+		translations = append(translations, translation)
 	}
 
-	return messages, nil
+	return translations, nil
 }
 
-func (t *translationRepository) GetWordTranslation(ctx context.Context, word string) (*domain.WordTranslation, error) {
-	word = strings.ToLower(word)
+// GetTranslation retrieves a translation based on the lexical item and the languages
+func (t *translationRepository) GetTranslation(ctx context.Context, lexicalItem, translateFrom, translateTo string) (*domain.Translation, error) {
+	lexicalItem = strings.ToLower(lexicalItem)
 	rows, err := t.conn.Query(ctx, `
-		SELECT word, meaning, examples, russian_translation, meaning_russian, examples_russian
+		SELECT lexical_item, meaning, examples, translated_from, translated_to, translated_lexical_item, translated_meaning, translated_examples
 		FROM translations
-		WHERE word = $1
+		WHERE lexical_item = $1 AND translated_from = $2 AND translated_to = $3
 		LIMIT 1;
-	`, word)
+	`, lexicalItem, translateFrom, translateTo)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var translation domain.WordTranslation
-		err := rows.Scan(&translation.Word, &translation.Meaning, &translation.Examples, &translation.RussianTranslation, &translation.MeaningRussian, &translation.ExamplesRussian)
+		var translation domain.Translation
+		err := rows.Scan(
+			&translation.OriginalLexicalItem,
+			&translation.OriginalMeaning,
+			&translation.OriginalExamples,
+			&translation.TranslatedFrom,
+			&translation.TranslatedTo,
+			&translation.TranslatedLexicalItem,
+			&translation.TranslatedMeaning,
+			&translation.TranslatedExamples,
+		)
 		if err != nil {
 			return nil, err
 		}
