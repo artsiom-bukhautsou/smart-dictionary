@@ -4,24 +4,26 @@ GRANT ALL PRIVILEGES ON TABLE public.translations TO admin;
 
 CREATE TABLE IF NOT EXISTS public.translations (
     id SERIAL PRIMARY KEY,
-    word VARCHAR(255) NOT NULL,
+    lexical_item VARCHAR(255) NOT NULL,
     meaning VARCHAR(255) NOT NULL,
     examples VARCHAR(255)[],
-    russian_translation VARCHAR(255) NOT NULL,
-    meaning_russian VARCHAR(255) NOT NULL,
-    examples_russian VARCHAR(255)[]
-    );
-
-CREATE INDEX idx_word ON translations (word);
+    translated_from VARCHAR(50) NOT NULL,
+    translated_to VARCHAR(50) NOT NULL,
+    translated_lexical_item VARCHAR(255) NOT NULL,
+    translated_meaning VARCHAR(255) NOT NULL,
+    translated_examples VARCHAR(255)[]
+);
+CREATE INDEX idx_lexical_item ON translations (lexical_item);
 
 CREATE TABLE IF NOT EXISTS public.users (
     id SERIAL PRIMARY KEY,
-    user_name VARCHAR(255) NOT NULL,
-    password VARCHAR(255) NOT NULL
-    );
-
+    user_name VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    refresh_token VARCHAR(255)
+);
 CREATE INDEX idx_user_name ON users (user_name);
 
+-- not implemented
 -- Create decks table
 CREATE TABLE IF NOT EXISTS public.decks (
     id SERIAL PRIMARY KEY,
@@ -42,9 +44,3 @@ CREATE TABLE IF NOT EXISTS public.deck_translations (
 -- Create index on deck_id and translation_id columns in deck_translations table
 CREATE INDEX idx_deck_id ON deck_translations (deck_id);
 CREATE INDEX idx_translation_id ON deck_translations (translation_id);
-
---Migration add field for users table
-ALTER TABLE users ADD COLUMN refresh_token VARCHAR(255);
-
---Migration Make username unique
-ALTER TABLE public.users ADD CONSTRAINT unique_user_name UNIQUE (user_name);
