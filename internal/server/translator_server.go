@@ -124,6 +124,10 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	if _, ok := domain.SupportedLanguages[req.TranslateTo]; !ok {
 		return c.String(http.StatusBadRequest, "target language is not supported")
 	}
+	const maxLexicalItemLength = 80
+	if len(req.LexicalItem) > maxLexicalItemLength {
+		return c.String(http.StatusBadRequest, fmt.Sprintf("max lexical item size is %d", maxLexicalItemLength))
+	}
 	req.LexicalItem = strings.ToLower(req.LexicalItem)
 	translation, err := t.translatorRepository.GetTranslation(c.Request().Context(), req.LexicalItem, req.TranslateFrom, req.TranslateTo)
 	if err != nil {
