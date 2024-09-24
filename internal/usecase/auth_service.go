@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
 )
@@ -16,19 +18,15 @@ func NewAuthService(authRepository infrastructure.AuthRepository, jwtAuth JWTAut
 }
 
 func (s AuthService) SignIn(login, password string) (*domain.Token, error) {
-	err := s.authRepository.SignIn(login, password)
+	userID, err := s.authRepository.SignIn(login, password)
 	if err != nil {
 		return nil, fmt.Errorf("singIn: %w", err)
 	}
-	refresh, err := s.jwtAuth.GenerateRefresh(login)
+	refresh, err := s.jwtAuth.GenerateRefresh(fmt.Sprintf("%d", userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
-	err = s.authRepository.UpdateRefreshToken(login, refresh)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update refresh token: %w", err)
-	}
-	access, err := s.jwtAuth.GenerateAccess(login)
+	access, err := s.jwtAuth.GenerateAccess(fmt.Sprintf("%d", userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
@@ -36,30 +34,34 @@ func (s AuthService) SignIn(login, password string) (*domain.Token, error) {
 }
 
 func (s AuthService) SignUp(credentials domain.AuthCredentials) (*domain.Token, error) {
-	isUsernameExist, err := s.authRepository.IsUsernameExist(credentials.Username)
+	isUsernameExist, err := s.authRepository.DoesUsernameExist(credentials.Username)
 	if err != nil {
 		return nil, fmt.Errorf("signup: %w", err)
 	}
 	if isUsernameExist {
 		return nil, fmt.Errorf("signup: username exists")
 	}
-	err = s.authRepository.SignUp(credentials)
+	userID, err := s.authRepository.SignUp(credentials)
 	if err != nil {
 		return nil, fmt.Errorf("signup failed: %w", err)
 	}
-	credentials.RefreshToken, err = s.jwtAuth.GenerateRefresh(credentials.Username)
+	credentials.RefreshToken, err = s.jwtAuth.GenerateRefresh(fmt.Sprintf("%d", userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
-	access, err := s.jwtAuth.GenerateAccess(credentials.Username)
+	access, err := s.jwtAuth.GenerateAccess(fmt.Sprintf("%d", userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 	return &domain.Token{Access: access, Refresh: credentials.RefreshToken}, nil
 }
 
-func (s AuthService) DeleteUser(username string) error {
-	err := s.authRepository.RemoveUser(username)
+func (s AuthService) DeleteUser(userID string) error {
+	id, err := strconv.Atoi(userID)
+	if err != nil {
+		return fmt.Errorf("userID has unsupported format: %w", err)
+	}
+	err = s.authRepository.RemoveUser(id)
 	if err != nil {
 		return fmt.Errorf("failed to remove user: %w", err)
 	}

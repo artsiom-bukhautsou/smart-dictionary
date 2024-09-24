@@ -2,15 +2,15 @@
 package usecase
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bukhavtsov/artems-dictionary/internal/domain"
-	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
-	"github.com/golang-jwt/jwt"
 	"log"
 	"strconv"
 	"time"
+
+	"github.com/bukhavtsov/artems-dictionary/internal/domain"
+	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
+	"github.com/golang-jwt/jwt"
 )
 
 type JTI struct {
@@ -65,15 +65,19 @@ func (j JWTAuth) RefreshRefreshToken(refreshToken string) (*domain.Token, error)
 	if !isValid {
 		return nil, errors.New("invalid refresh token")
 	}
-	username, err := j.getUsernameFromToken(refreshToken, j.secretKeyRefresh)
+	token, err := parse(refreshToken, j.secretKeyRefresh)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get username from refresh token: %w", err)
+		return nil, fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
-	updatedRefresh, err := j.GenerateRefresh(username)
+	sub, err := j.getSubjectFromToken(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sub from refresh token: %w", err)
+	}
+	updatedRefresh, err := j.GenerateRefresh(sub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
-	updatedAccess, err := j.GenerateAccess(username)
+	updatedAccess, err := j.GenerateAccess(sub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
@@ -81,66 +85,62 @@ func (j JWTAuth) RefreshRefreshToken(refreshToken string) (*domain.Token, error)
 }
 
 func (j JWTAuth) IsAccessTokenValid(access string) (bool, error) {
-	if !j.isValidTime(access, j.secretKeyAccess) {
-		return false, fmt.Errorf("access token time is over")
-	}
 	token, err := parse(access, j.secretKeyAccess)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse access token: %w", err)
+		return false, fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
-	jti, err := j.GetJTI(token)
-	if err != nil {
-		return false, fmt.Errorf("failed to get JTI: %w", err)
+	if !j.isValidTime(token) {
+		return false, fmt.Errorf("access token time is over")
 	}
-	isExist, err := j.authRepo.IsUsernameExist(jti.Username)
-	if err != nil {
-		return false, fmt.Errorf("user hasn't been found: %w", err)
-	}
-	return isExist, nil
+	return true, nil
 }
 
 func (j JWTAuth) IsRefreshTokenValid(refresh string) (bool, error) {
-	if !j.isValidTime(refresh, j.secretKeyRefresh) {
+	token, err := parse(refresh, j.secretKeyRefresh)
+	if err != nil {
+		return false, fmt.Errorf("couldn't parse token string and secret: %w", err)
+	}
+	if !j.isValidTime(token) {
 		return false, errors.New("refresh token time is over")
 	}
-	username, err := j.getUsernameFromToken(refresh, j.secretKeyRefresh)
+	sub, err := j.getSubjectFromToken(token)
 	if err != nil {
-		return false, fmt.Errorf("failed to find user: %w", err)
+		return false, fmt.Errorf("failed to get sub: %w", err)
 	}
-	return username != "", nil
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		return false, fmt.Errorf("access token has sub with invalid format: %w", err)
+	}
+	exist, err := j.authRepo.DoesUserIDExist(userID)
+	if err != nil {
+		return false, fmt.Errorf("user isn't found: %w", err)
+	}
+	return exist, nil
 }
 
-func (j JWTAuth) GetUsernameFromAccessToken(token string) (string, error) {
-	return j.getUsernameFromToken(token, j.secretKeyAccess)
-}
-
-func (j JWTAuth) getUsernameFromToken(tokenString, secretKey string) (string, error) {
-	token, err := parse(tokenString, secretKey)
+func (j JWTAuth) GetSubFromAccessToken(tokenStr string) (string, error) {
+	token, err := parse(tokenStr, j.secretKeyAccess)
 	if err != nil {
 		return "", fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
-	jti, err := j.GetJTI(token)
-	if err != nil {
-		return "", fmt.Errorf("couldn't get jti: %w", err)
-	}
-	isExist, err := j.authRepo.IsUsernameExist(jti.Username)
-	if err != nil {
-		return "", fmt.Errorf("couldn't check in database: %w", err)
-	}
-	if !isExist {
-		return "", fmt.Errorf("couldn't find the username")
-	}
-	return jti.Username, nil
+	return j.getSubjectFromToken(token)
 }
 
-func (j JWTAuth) isValidTime(tokenString, secretKey string) bool {
-	token, err := parse(tokenString, secretKey)
-	if err != nil {
-		log.Printf("failed to parse token: %v", err)
-		return false
+func (j JWTAuth) getSubjectFromToken(token *jwt.Token) (string, error) {
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		if sub, ok := claims["sub"].(string); ok {
+			return sub, nil
+		}
+		return "", fmt.Errorf("`sub` claim is not present in token")
 	}
+	return "", fmt.Errorf("invalid token")
+}
+
+func (j JWTAuth) isValidTime(token *jwt.Token) bool {
+	// TODO: refactor
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		expString := fmt.Sprintf("%f", claims["exp"])
+		fmt.Println("expString", expString)
 		exp, err := strconv.ParseFloat(expString, 64)
 		if err != nil {
 			log.Println(err)
@@ -150,55 +150,46 @@ func (j JWTAuth) isValidTime(tokenString, secretKey string) bool {
 		if exp > now {
 			return true
 		}
+		fmt.Println("now", now)
 	}
 	return false
 }
 
-func (j JWTAuth) GetJTI(token *jwt.Token) (*JTI, error) {
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		jtiJson := fmt.Sprintf("%v", claims["jti"])
-		var jti JTI
-		err := json.Unmarshal([]byte(jtiJson), &jti)
-		if err != nil {
-			return nil, err
-		}
-		return &jti, nil
-	}
-	return nil, fmt.Errorf("user hasn't been found")
-}
-
-func (j JWTAuth) GenerateAccess(username string) (tokenString string, err error) {
-	jti, err := json.Marshal(&JTI{username})
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal access JTI: %w", err)
-	}
+func (j JWTAuth) GenerateAccess(sub string) (tokenString string, err error) {
 	claims := jwt.StandardClaims{
 		Issuer:    j.iss,
-		Id:        string(jti),
+		Subject:   sub,
 		ExpiresAt: time.Now().Add(j.accessTokenExpTime).Unix(),
 	}
+	// TODO: add authorisation also
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	token, err := rawToken.SignedString([]byte(j.secretKeyAccess))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("couldn't generate access token")
 	}
 	return token, nil
 }
 
-func (j JWTAuth) GenerateRefresh(username string) (tokenString string, err error) {
-	jti, err := json.Marshal(&JTI{username})
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal refresh JTI: %w", err)
-	}
+func (j JWTAuth) GenerateRefresh(sub string) (tokenString string, err error) {
 	claims := jwt.StandardClaims{
 		Issuer:    j.iss,
-		Id:        string(jti),
+		Subject:   sub,
 		ExpiresAt: time.Now().Add(j.refreshTokenExpTime).Unix(),
+		// TODO: as far as I have GTI in db, it's probably makes sense to generate a unique token for it
+		// maybe it makes sense to add a authorisation also by user role. That would be awesome
 	}
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	token, err := rawToken.SignedString([]byte(j.secretKeyRefresh))
 	if err != nil {
-		return "", fmt.Errorf("GenerateRefresh error: %w", err)
+		return "", fmt.Errorf("couldn't generate refresh token")
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		return "", fmt.Errorf("sub has unsupported format: %w", err)
+	}
+	err = j.authRepo.UpdateRefreshToken(userID, token)
+	if err != nil {
+		return "", fmt.Errorf("failed to update refresh token: %w", err)
 	}
 	return token, nil
 }

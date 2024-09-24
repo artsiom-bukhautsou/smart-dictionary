@@ -6,15 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bukhavtsov/artems-dictionary/internal/domain"
-	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
-	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"log"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/bukhavtsov/artems-dictionary/internal/domain"
+	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
+	"github.com/labstack/echo/v4"
 )
 
 type TranslatorServer struct {
@@ -205,8 +206,8 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		Path:     "/",
 		Domain:   "",                                    // Set to your domain if needed
 		Expires:  time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
-		Secure:   false,                                 // Set to true if using HTTPS
-		HttpOnly: false,                                 // to be able to take cookies by frontend
+		Secure:   true,                                  // Set to true if using HTTPS
+		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
 	c.SetCookie(&http.Cookie{
@@ -215,8 +216,8 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		Path:     "/",
 		Domain:   "",                                     // Set to your domain if needed
 		Expires:  time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
-		Secure:   false,                                  // Set to true if using HTTPS
-		HttpOnly: false,
+		Secure:   true,                                   // Set to true if using HTTPS
+		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -231,15 +232,15 @@ func (t TranslatorServer) DeleteUsersAccount(c echo.Context) error {
 	if token == "" {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
 	}
-	username, err := t.jwtService.GetUsernameFromAccessToken(token)
+	sub, err := t.jwtService.GetSubFromAccessToken(token)
 	if err != nil {
-		t.logger.Error("failed to get username from access token", slog.Any("err", err.Error()))
+		t.logger.Error("failed to get sub from access token", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
 	}
-	err = t.authService.DeleteUser(username)
+	err = t.authService.DeleteUser(sub)
 	if err != nil {
 		t.logger.Error("failed to delete user from the database", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
 	}
-	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", username))
+	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", sub))
 }

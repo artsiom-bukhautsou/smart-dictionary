@@ -2,18 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/bukhavtsov/artems-dictionary/internal/infrastructure"
+	middlewareInternal "github.com/bukhavtsov/artems-dictionary/internal/middleware"
 	"github.com/bukhavtsov/artems-dictionary/internal/server"
 	"github.com/bukhavtsov/artems-dictionary/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"log/slog"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 )
 
 var (
@@ -33,8 +33,8 @@ var (
 	jwtAccessTokenExpTime  = os.Getenv("JWT_ACCESS_TOKEN_EXP_TIME")
 
 	allowOrigins = os.Getenv("ALLOW_ORIGINS")
-	tlsCertFile  = os.Getenv("TLS_CERT_FILE")
-	tlsKeyFile   = os.Getenv("TLS_KEY_FILE")
+	// tlsCertFile  = os.Getenv("TLS_CERT_FILE")
+	// tlsKeyFile   = os.Getenv("TLS_KEY_FILE")
 )
 
 func main() {
@@ -58,7 +58,6 @@ func main() {
 		return
 	}
 	originsList := strings.Split(allowOrigins, ",")
-	fmt.Println(originsList)
 
 	authRepository := infrastructure.NewAuthRepository(conn)
 	jwtAuth := usecase.NewJWTAuth(
@@ -88,7 +87,7 @@ func main() {
 			AllowOrigins:     originsList,
 			AllowCredentials: true,
 		}),
-		ValidateAccessToken(*jwtAuth),
+		middlewareInternal.ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
@@ -103,31 +102,6 @@ func main() {
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
 	authGroup.POST("/refresh", translatorServer.RefreshRefreshToken)
-	slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
-}
-
-func ValidateAccessToken(jwtAuth usecase.JWTAuth) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			req := c.Request()
-			auth := req.Header.Get("Authorization")
-			if auth == "" {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
-			}
-			// Token usually comes as "Bearer <token>", so we split to get the actual token part
-			token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
-			if token == "" {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
-			}
-			// Validate the token using the JWTAuth use case
-			isValid, err := jwtAuth.IsAccessTokenValid(token)
-			if !isValid || err != nil {
-				if err != nil {
-					fmt.Printf("failed to validate token: %v", err)
-				}
-				return c.JSON(http.StatusUnauthorized, map[string]string{"message": "invalid or expired token"})
-			}
-			return next(c)
-		}
-	}
+	//slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
+	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }
