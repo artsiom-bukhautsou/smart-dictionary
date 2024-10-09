@@ -45,7 +45,7 @@ func (s AuthService) SignUp(credentials domain.AuthCredentials) (*domain.Token, 
 	if err != nil {
 		return nil, fmt.Errorf("signup failed: %w", err)
 	}
-	credentials.RefreshToken, err = s.jwtAuth.GenerateRefresh(fmt.Sprintf("%d", userID))
+	refresh, err := s.jwtAuth.GenerateRefresh(fmt.Sprintf("%d", userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -53,7 +53,7 @@ func (s AuthService) SignUp(credentials domain.AuthCredentials) (*domain.Token, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
-	return &domain.Token{Access: access, Refresh: credentials.RefreshToken}, nil
+	return &domain.Token{Access: access, Refresh: refresh}, nil
 }
 
 func (s AuthService) DeleteUser(userID string) error {

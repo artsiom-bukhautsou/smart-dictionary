@@ -51,7 +51,7 @@ func (ur *AuthRepository) UpdateRefreshToken(userID int, refreshToken string) er
 func (ur *AuthRepository) DoesUserIDExist(userID int) (bool, error) {
 	var id int
 	query := "SELECT id FROM users WHERE id = $1"
-	err := ur.conn.QueryRow(context.Background(), query, id).Scan(&id)
+	err := ur.conn.QueryRow(context.Background(), query, userID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

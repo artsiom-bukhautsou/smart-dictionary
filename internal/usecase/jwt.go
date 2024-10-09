@@ -4,7 +4,6 @@ package usecase
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
@@ -89,8 +88,12 @@ func (j JWTAuth) IsAccessTokenValid(access string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
-	if !j.isValidTime(token) {
-		return false, fmt.Errorf("access token time is over")
+	isValid, err := j.isValidTime(token)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate time: %w", err)
+	}
+	if !isValid {
+		return false, errors.New("refresh token time is over")
 	}
 	return true, nil
 }
@@ -100,7 +103,11 @@ func (j JWTAuth) IsRefreshTokenValid(refresh string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("couldn't parse token string and secret: %w", err)
 	}
-	if !j.isValidTime(token) {
+	isValid, err := j.isValidTime(token)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate time: %w", err)
+	}
+	if !isValid {
 		return false, errors.New("refresh token time is over")
 	}
 	sub, err := j.getSubjectFromToken(token)
@@ -136,23 +143,19 @@ func (j JWTAuth) getSubjectFromToken(token *jwt.Token) (string, error) {
 	return "", fmt.Errorf("invalid token")
 }
 
-func (j JWTAuth) isValidTime(token *jwt.Token) bool {
-	// TODO: refactor
+func (j JWTAuth) isValidTime(token *jwt.Token) (bool, error) {
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		expString := fmt.Sprintf("%f", claims["exp"])
-		fmt.Println("expString", expString)
-		exp, err := strconv.ParseFloat(expString, 64)
-		if err != nil {
-			log.Println(err)
-			return false
+		exp, ok := claims["exp"].(float64)
+		if !ok {
+			return false, errors.New("exp property has invalid value")
 		}
 		now := float64(time.Now().Unix())
 		if exp > now {
-			return true
+			return true, nil
 		}
-		fmt.Println("now", now)
+		return false, nil
 	}
-	return false
+	return false, errors.New("invalid token claims or token is not valid")
 }
 
 func (j JWTAuth) GenerateAccess(sub string) (tokenString string, err error) {
@@ -161,7 +164,6 @@ func (j JWTAuth) GenerateAccess(sub string) (tokenString string, err error) {
 		Subject:   sub,
 		ExpiresAt: time.Now().Add(j.accessTokenExpTime).Unix(),
 	}
-	// TODO: add authorisation also
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	token, err := rawToken.SignedString([]byte(j.secretKeyAccess))
 	if err != nil {
@@ -175,8 +177,6 @@ func (j JWTAuth) GenerateRefresh(sub string) (tokenString string, err error) {
 		Issuer:    j.iss,
 		Subject:   sub,
 		ExpiresAt: time.Now().Add(j.refreshTokenExpTime).Unix(),
-		// TODO: as far as I have GTI in db, it's probably makes sense to generate a unique token for it
-		// maybe it makes sense to add a authorisation also by user role. That would be awesome
 	}
 	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	token, err := rawToken.SignedString([]byte(j.secretKeyRefresh))

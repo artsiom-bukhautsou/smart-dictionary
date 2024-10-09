@@ -193,9 +193,6 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, er
 	if err != nil {
 		return nil, fmt.Errorf("error decoding JSON: %w, received string is: %s", err, chatGPTResp.Choices[0].Message.Content)
 	}
-
-	// TODO: check case with error
-
 	return &wordTranslation, nil
 }
 

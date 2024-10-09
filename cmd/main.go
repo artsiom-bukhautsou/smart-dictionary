@@ -33,8 +33,8 @@ var (
 	jwtAccessTokenExpTime  = os.Getenv("JWT_ACCESS_TOKEN_EXP_TIME")
 
 	allowOrigins = os.Getenv("ALLOW_ORIGINS")
-	// tlsCertFile  = os.Getenv("TLS_CERT_FILE")
-	// tlsKeyFile   = os.Getenv("TLS_KEY_FILE")
+	tlsCertFile  = os.Getenv("TLS_CERT_FILE")
+	tlsKeyFile   = os.Getenv("TLS_KEY_FILE")
 )
 
 func main() {
@@ -102,6 +102,6 @@ func main() {
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
 	authGroup.POST("/refresh", translatorServer.RefreshRefreshToken)
-	//slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
+	slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
 	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
 }
