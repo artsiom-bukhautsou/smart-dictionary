@@ -1,13 +1,13 @@
 package domain
 
-type Deck struct {
+type Collection struct {
 	ID     int    `json:"id"`
 	Name   string `json:"name"`
 	UserID int    `json:"userId"`
 }
 
-type DeckTranslation struct {
+type CollectionTranslation struct {
 	ID          int         `json:"id"`
-	Deck        Deck        `json:"deck"`
+	Collection  Collection  `json:"collection"`
 	Translation Translation `json:"translation"`
 }

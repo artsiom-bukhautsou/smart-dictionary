@@ -57,10 +57,10 @@ type TranslatorRepository interface {
 	AddTranslation(ctx context.Context, translation domain.Translation, translatedFrom, translatedTo string) (int, error)
 	GetAllTranslations(ctx context.Context) ([]domain.Translation, error)
 	GetTranslation(ctx context.Context, lexicalItem, translateFrom, translateTo string) (*domain.Translation, error)
-	GetDecksByUserID(ctx context.Context, userID int) ([]domain.Deck, error)
-	GetDeckTranslations(ctx context.Context, deckID int, translationIDs []int, userID int) ([]domain.DeckTranslation, error)
-	CreateDeck(ctx context.Context, userID int, deckName string) (int, error)
-	SaveToDeckLexicalItem(ctx context.Context, deckID, translationID int) (int, error)
+	GetCollectionsByUserID(ctx context.Context, userID int) ([]domain.Collection, error)
+	GetCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error)
+	CreateCollection(ctx context.Context, userID int, collectionName string) (int, error)
+	SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error)
 }
 
 func (t TranslatorServer) SignIn(c echo.Context) error {
@@ -164,39 +164,39 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 			t.logger.Error(err.Error())
 		}
 
-		// TODO: add an ability to specify deck in the translation request
-		// At the moment the default deck name will be 'default'
-		t.addTranslatoinToDeck(ctx, sub, translationID)
+		// TODO: add an ability to specify collection in the translation request
+		// At the moment the default collection name will be 'default'
+		t.addTranslatoinToCollection(ctx, sub, translationID)
 
 	}()
 	return c.JSON(http.StatusOK, lexicalItem)
 }
 
-func (t TranslatorServer) addTranslatoinToDeck(ctx context.Context, sub string, translationID int) {
+func (t TranslatorServer) addTranslatoinToCollection(ctx context.Context, sub string, translationID int) {
 	userID, err := strconv.Atoi(sub)
 	if err != nil {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
 		return
 	}
 
-	decks, err := t.translatorRepository.GetDecksByUserID(ctx, userID)
+	collections, err := t.translatorRepository.GetCollectionsByUserID(ctx, userID)
 	if err != nil {
-		t.logger.Error("GetDecksByUserID failed", slog.Any("err", err.Error()))
+		t.logger.Error("GetCollectionsByUserID failed", slog.Any("err", err.Error()))
 		return
 	}
-	var deckID int
-	if len(decks) == 0 {
-		deckID, err = t.translatorRepository.CreateDeck(ctx, userID, "default")
+	var collectionID int
+	if len(collections) == 0 {
+		collectionID, err = t.translatorRepository.CreateCollection(ctx, userID, "default")
 		if err != nil {
-			t.logger.Error("CreateDeck failed", slog.Any("err", err.Error()))
+			t.logger.Error("CreateCollection failed", slog.Any("err", err.Error()))
 			return
 		}
 	} else {
-		deckID = decks[0].ID
+		collectionID = collections[0].ID
 	}
-	_, err = t.translatorRepository.SaveToDeckLexicalItem(ctx, deckID, translationID)
+	_, err = t.translatorRepository.SaveToCollectionLexicalItem(ctx, collectionID, translationID)
 	if err != nil {
-		t.logger.Error("SaveToDeckLexicalItem failed", slog.Any("err", err.Error()))
+		t.logger.Error("SaveToCollectionLexicalItem failed", slog.Any("err", err.Error()))
 		return
 	}
 }
@@ -276,7 +276,7 @@ func (t TranslatorServer) DeleteUsersAccount(c echo.Context) error {
 	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", sub))
 }
 
-func (t TranslatorServer) GetDecks(c echo.Context) error {
+func (t TranslatorServer) GetCollections(c echo.Context) error {
 	sub, failed, status := t.GetSubFromToken(c)
 	if failed {
 		return status
@@ -286,20 +286,20 @@ func (t TranslatorServer) GetDecks(c echo.Context) error {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
 	}
-	decks, err := t.translatorRepository.GetDecksByUserID(c.Request().Context(), userID)
+	collections, err := t.translatorRepository.GetCollectionsByUserID(c.Request().Context(), userID)
 	if err != nil {
 		t.logger.Error("failed get decs for the user", slog.Any("err", err.Error()))
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get decks for the user"})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get collections for the user"})
 	}
-	return c.JSON(http.StatusOK, decks)
+	return c.JSON(http.StatusOK, collections)
 }
 
-func (t TranslatorServer) GetDecksTranslations(c echo.Context) error {
-	deckIDParam := c.Param("deckID")
-	deckID, err := strconv.Atoi(deckIDParam)
+func (t TranslatorServer) GetCollectionsTranslations(c echo.Context) error {
+	collectionIDParam := c.Param("collectionID")
+	collectionID, err := strconv.Atoi(collectionIDParam)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid DeckID",
+			"error": "Invalid CollectionID",
 		})
 	}
 
@@ -329,12 +329,12 @@ func (t TranslatorServer) GetDecksTranslations(c echo.Context) error {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
 	}
-	decksTranslations, err := t.translatorRepository.GetDeckTranslations(c.Request().Context(), deckID, translationIDs, userID)
+	collectionsTranslations, err := t.translatorRepository.GetCollectionTranslations(c.Request().Context(), collectionID, translationIDs, userID)
 	if err != nil {
-		t.logger.Error("failed to get deck's translations", slog.Any("err", err.Error()))
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get deck's translations"})
+		t.logger.Error("failed to get collection's translations", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get collection's translations"})
 	}
-	return c.JSON(http.StatusOK, decksTranslations)
+	return c.JSON(http.StatusOK, collectionsTranslations)
 }
 
 func (t TranslatorServer) GetSubFromToken(c echo.Context) (string, bool, error) {
@@ -350,7 +350,7 @@ func (t TranslatorServer) GetSubFromToken(c echo.Context) (string, bool, error) 
 	sub, err := t.jwtService.GetSubFromAccessToken(token)
 	if err != nil {
 		t.logger.Error("failed to get sub from access token", slog.Any("err", err.Error()))
-		return "", true, c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get users decks"})
+		return "", true, c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get users collections"})
 	}
 	return sub, false, nil
 }

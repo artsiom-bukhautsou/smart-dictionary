@@ -111,64 +111,64 @@ func (t *translationRepository) GetTranslation(ctx context.Context, lexicalItem,
 	return nil, nil
 }
 
-func (t *translationRepository) CreateDeck(ctx context.Context, userID int, deckName string) (int, error) {
+func (t *translationRepository) CreateCollection(ctx context.Context, userID int, collectionName string) (int, error) {
 	_, err := t.conn.Exec(
 		ctx,
-		"INSERT INTO decks (user_id, deck_name) VALUES ($1, $2)",
+		"INSERT INTO collections (user_id, collection_name) VALUES ($1, $2)",
 		userID,
-		deckName,
+		collectionName,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create a deck: %w", err)
+		return 0, fmt.Errorf("failed to create a collection: %w", err)
 	}
 	return 0, nil
 }
 
-func (t *translationRepository) SaveToDeckLexicalItem(ctx context.Context, deckID, translationID int) (int, error) {
+func (t *translationRepository) SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error) {
 	_, err := t.conn.Exec(
 		ctx,
-		"INSERT INTO deck_translations (deck_id, translation_id) VALUES ($1, $2)",
-		deckID,
+		"INSERT INTO collection_translations (collection_id, translation_id) VALUES ($1, $2)",
+		collectionID,
 		translationID,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to assosiate translation with deck: %w", err)
+		return 0, fmt.Errorf("failed to assosiate translation with collection: %w", err)
 	}
 	return 0, nil
 }
 
-func (t *translationRepository) GetDecksByUserID(ctx context.Context, userID int) ([]domain.Deck, error) {
-	var decks []domain.Deck
+func (t *translationRepository) GetCollectionsByUserID(ctx context.Context, userID int) ([]domain.Collection, error) {
+	var collections []domain.Collection
 
-	query := "SELECT id, deck_name, user_id FROM decks WHERE user_id = $1"
+	query := "SELECT id, collection_name, user_id FROM collections WHERE user_id = $1"
 
 	rows, err := t.conn.Query(ctx, query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve decks for user_id %d: %w", userID, err)
+		return nil, fmt.Errorf("failed to retrieve collections for user_id %d: %w", userID, err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var deck domain.Deck
-		if err := rows.Scan(&deck.ID, &deck.Name, &deck.UserID); err != nil {
-			return nil, fmt.Errorf("failed to scan deck row: %w", err)
+		var collection domain.Collection
+		if err := rows.Scan(&collection.ID, &collection.Name, &collection.UserID); err != nil {
+			return nil, fmt.Errorf("failed to scan collection row: %w", err)
 		}
-		decks = append(decks, deck)
+		collections = append(collections, collection)
 	}
 
-	return decks, nil
+	return collections, nil
 }
 
-func (t *translationRepository) GetDeckTranslations(ctx context.Context, deckID int, translationIDs []int, userID int) ([]domain.DeckTranslation, error) {
-	var translations []domain.DeckTranslation
+func (t *translationRepository) GetCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error) {
+	var translations []domain.CollectionTranslation
 
 	query := `
 		SELECT 
-		    dt.id AS deck_translation_id, 
-		    dt.deck_id, 
-		    dt.translation_id, 
-		    d.deck_name, 
-		    d.user_id, 
+		    ct.id AS collection_translation_id, 
+		    ct.collection_id, 
+		    ct.translation_id, 
+		    c.collection_name, 
+		    c.user_id, 
 		    t.lexical_item, 
 		    t.meaning, 
 		    t.examples, 
@@ -178,17 +178,17 @@ func (t *translationRepository) GetDeckTranslations(ctx context.Context, deckID 
 		    t.translated_meaning, 
 		    t.translated_examples
 		FROM 
-		    deck_translations dt
+		    collection_translations ct
 		JOIN 
-		    decks d ON dt.deck_id = d.id
+		    collections c ON ct.collection_id = c.id
 		JOIN 
-		    translations t ON dt.translation_id = t.id
+		    translations t ON ct.translation_id = t.id
 		WHERE 
-		    d.id = $1
+		    c.id = $1
 		AND
-			d.user_id = $2
+			c.user_id = $2
 	`
-	args := []interface{}{deckID, userID}
+	args := []interface{}{collectionID, userID}
 
 	if len(translationIDs) > 0 {
 		query += " AND t.id = ANY($3)"
@@ -197,21 +197,21 @@ func (t *translationRepository) GetDeckTranslations(ctx context.Context, deckID 
 
 	rows, err := t.conn.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve deck translations for deck_id %d: %w", deckID, err)
+		return nil, fmt.Errorf("failed to retrieve collection translations for collection_id %d: %w", collectionID, err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var dt domain.DeckTranslation
-		var deck domain.Deck
+		var ct domain.CollectionTranslation
+		var collection domain.Collection
 		var translation domain.Translation
 
 		if err := rows.Scan(
-			&dt.ID,
-			&deck.ID,
+			&ct.ID,
+			&collection.ID,
 			&translation.ID,
-			&deck.Name,
-			&deck.UserID,
+			&collection.Name,
+			&collection.UserID,
 			&translation.OriginalLexicalItem,
 			&translation.OriginalMeaning,
 			&translation.OriginalExamples,
@@ -221,13 +221,13 @@ func (t *translationRepository) GetDeckTranslations(ctx context.Context, deckID 
 			&translation.TranslatedMeaning,
 			&translation.TranslatedExamples,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan deck_translation row: %w", err)
+			return nil, fmt.Errorf("failed to scan collection_translation row: %w", err)
 		}
 
-		dt.Deck = deck
-		dt.Translation = translation
+		ct.Collection = collection
+		ct.Translation = translation
 
-		translations = append(translations, dt)
+		translations = append(translations, ct)
 	}
 
 	return translations, nil

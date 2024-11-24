@@ -93,8 +93,8 @@ func main() {
 		middlewareInternal.ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
-	apiGroup.GET("/decks", translatorServer.GetDecks)
-	apiGroup.GET("/decks/:deckID/translations", translatorServer.GetDecksTranslations)
+	apiGroup.GET("/collections", translatorServer.GetCollections)
+	apiGroup.GET("/collections/:collectionID/translations", translatorServer.GetCollectionsTranslations)
 	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
 
 	authGroup := e.Group("/auth")

@@ -1,6 +1,6 @@
 package domain
 
-type GetDecksTranslationsRequest struct {
-	DeckID int
+type GetCollectionsTranslationsRequest struct {
+	CollectionID   int
 	TranslationIDs []int
 }
