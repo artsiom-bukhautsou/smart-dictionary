@@ -139,14 +139,6 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("max lexical item size is %d", maxLexicalItemLength))
 	}
 	req.LexicalItem = strings.ToLower(req.LexicalItem)
-	translation, err := t.translatorRepository.GetTranslation(c.Request().Context(), req.LexicalItem, req.TranslateFrom, req.TranslateTo)
-	if err != nil {
-		t.logger.Error("failed to get translation", slog.Any("err", err.Error()))
-		return c.String(http.StatusInternalServerError, "server error try again later")
-	}
-	if translation != nil {
-		return c.JSON(http.StatusOK, translation)
-	}
 	promptTemplate := "Translate the lexical item: '%s', from '%s' to '%s'. Provide response in JSON format as follows: translatedFrom: string; translatedTo: string; originalLexicalItem: string; originalMeaning: string; originalExamples: [string, string]; translatedLexicalItem: string; translatedMeaning: string; translatedExamples: [string, string];. Ensure that 'originalMeaning' is in the original language ('translatedFrom')."
 	prompt := fmt.Sprintf(promptTemplate, req.LexicalItem, req.TranslateFrom, req.TranslateTo)
 	lexicalItem, err := t.callChatGPTAPI(prompt)
@@ -159,6 +151,14 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	}
 	go func() {
 		ctx := context.Background()
+		translation, err := t.translatorRepository.GetTranslation(c.Request().Context(), req.LexicalItem, req.TranslateFrom, req.TranslateTo)
+		if err != nil {
+			t.logger.Error("failed to get translation", slog.Any("err", err.Error()))
+			return
+		}
+		if translation != nil {
+			return
+		}
 		translationID, err := t.translatorRepository.AddTranslation(ctx, *lexicalItem, req.TranslateFrom, req.TranslateTo)
 		if err != nil {
 			t.logger.Error(err.Error())
@@ -166,13 +166,13 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 
 		// TODO: add an ability to specify collection in the translation request
 		// At the moment the default collection name will be 'default'
-		t.addTranslatoinToCollection(ctx, sub, translationID)
+		t.addTranslationToCollection(ctx, sub, translationID)
 
 	}()
 	return c.JSON(http.StatusOK, lexicalItem)
 }
 
-func (t TranslatorServer) addTranslatoinToCollection(ctx context.Context, sub string, translationID int) {
+func (t TranslatorServer) addTranslationToCollection(ctx context.Context, sub string, translationID int) {
 	userID, err := strconv.Atoi(sub)
 	if err != nil {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
@@ -202,8 +202,15 @@ func (t TranslatorServer) addTranslatoinToCollection(ctx context.Context, sub st
 }
 
 func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, error) {
-	requestBody := fmt.Sprintf(`{"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "%s"}]}`, prompt)
-
+	requestBody := fmt.Sprintf(`{
+		"model": "gpt-3.5-turbo",
+		"messages": [
+			{
+				"role": "user",
+				"content": %q
+			}
+		]
+	}`, prompt)
 	req, err := http.NewRequest("POST", t.chatGPTAPIURL, bytes.NewBuffer([]byte(requestBody)))
 	if err != nil {
 		return nil, err
@@ -231,9 +238,10 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, er
 	if len(chatGPTResp.Choices) != 1 {
 		return nil, fmt.Errorf("expected number of choices is 1, actual %d", len(chatGPTResp.Choices))
 	}
+	translationJSON := chatGPTResp.Choices[0].Message.Content
 
 	var wordTranslation domain.Translation
-	err = json.Unmarshal([]byte(chatGPTResp.Choices[0].Message.Content), &wordTranslation)
+	err = json.Unmarshal([]byte(translationJSON), &wordTranslation)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding JSON: %w, received string is: %s", err, chatGPTResp.Choices[0].Message.Content)
 	}
