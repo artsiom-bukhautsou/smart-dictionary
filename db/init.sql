@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 CREATE INDEX idx_user_name ON users (user_name);
 
--- not implemented
 -- Create decks table
 CREATE TABLE IF NOT EXISTS public.decks (
     id SERIAL PRIMARY KEY,

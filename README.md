@@ -109,7 +109,7 @@ docker run --env-file .env.tmp -p 8080:8080 smart-dict
 Alternatively, use `docker-compose` to spin up the application and any dependencies (e.g., database):
 
 ```bash
-docker-compose --env-fili .env.tmp up -d
+docker-compose --env-file .env.tmp up -d
 ```
 
 ### Database Initialization

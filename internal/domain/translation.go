@@ -1,6 +1,7 @@
 package domain
 
 type Translation struct {
+	ID                    int      `json:"id"`
 	OriginalLexicalItem   string   `json:"originalLexicalItem"`
 	OriginalMeaning       string   `json:"originalMeaning"`
 	OriginalExamples      []string `json:"originalExamples"`

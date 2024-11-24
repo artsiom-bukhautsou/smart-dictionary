@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,9 +54,13 @@ func NewTranslatorServer(
 }
 
 type TranslatorRepository interface {
-	AddTranslation(ctx context.Context, translation domain.Translation, translatedFrom, translatedTo string) error
+	AddTranslation(ctx context.Context, translation domain.Translation, translatedFrom, translatedTo string) (int, error)
 	GetAllTranslations(ctx context.Context) ([]domain.Translation, error)
 	GetTranslation(ctx context.Context, lexicalItem, translateFrom, translateTo string) (*domain.Translation, error)
+	GetDecksByUserID(ctx context.Context, userID int) ([]domain.Deck, error)
+	GetDeckTranslations(ctx context.Context, deckID int, translationIDs []int, userID int) ([]domain.DeckTranslation, error)
+	CreateDeck(ctx context.Context, userID int, deckName string) (int, error)
+	SaveToDeckLexicalItem(ctx context.Context, deckID, translationID int) (int, error)
 }
 
 func (t TranslatorServer) SignIn(c echo.Context) error {
@@ -113,8 +118,12 @@ func (t TranslatorServer) RefreshRefreshToken(c echo.Context) error {
 }
 
 func (t TranslatorServer) Translate(c echo.Context) error {
+	sub, failed, err := t.GetSubFromToken(c)
+	if failed {
+		t.logger.Error("failed to get sub from token", slog.Any("err", err.Error()))
+	}
 	var req domain.TranslationRequest
-	err := c.Bind(&req)
+	err = c.Bind(&req)
 	if err != nil {
 		t.logger.Error("translate - failed to convert", slog.Any("err", err.Error()))
 		return c.String(http.StatusBadRequest, "invalid input")
@@ -149,12 +158,47 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "couldn't translate")
 	}
 	go func() {
-		err = t.translatorRepository.AddTranslation(context.Background(), *lexicalItem, req.TranslateFrom, req.TranslateTo)
+		ctx := context.Background()
+		translationID, err := t.translatorRepository.AddTranslation(ctx, *lexicalItem, req.TranslateFrom, req.TranslateTo)
 		if err != nil {
 			t.logger.Error(err.Error())
 		}
+
+		// TODO: add an ability to specify deck in the translation request
+		// At the moment the default deck name will be 'default'
+		t.addTranslatoinToDeck(ctx, sub, translationID)
+
 	}()
 	return c.JSON(http.StatusOK, lexicalItem)
+}
+
+func (t TranslatorServer) addTranslatoinToDeck(ctx context.Context, sub string, translationID int) {
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return
+	}
+
+	decks, err := t.translatorRepository.GetDecksByUserID(ctx, userID)
+	if err != nil {
+		t.logger.Error("GetDecksByUserID failed", slog.Any("err", err.Error()))
+		return
+	}
+	var deckID int
+	if len(decks) == 0 {
+		deckID, err = t.translatorRepository.CreateDeck(ctx, userID, "default")
+		if err != nil {
+			t.logger.Error("CreateDeck failed", slog.Any("err", err.Error()))
+			return
+		}
+	} else {
+		deckID = decks[0].ID
+	}
+	_, err = t.translatorRepository.SaveToDeckLexicalItem(ctx, deckID, translationID)
+	if err != nil {
+		t.logger.Error("SaveToDeckLexicalItem failed", slog.Any("err", err.Error()))
+		return
+	}
 }
 
 func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, error) {
@@ -220,24 +264,93 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 }
 
 func (t TranslatorServer) DeleteUsersAccount(c echo.Context) error {
-	auth := c.Request().Header.Get("Authorization")
-	if auth == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
 	}
-	// Token usually comes as "Bearer <token>", so we split to get the actual token part
-	token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
-	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
-	}
-	sub, err := t.jwtService.GetSubFromAccessToken(token)
-	if err != nil {
-		t.logger.Error("failed to get sub from access token", slog.Any("err", err.Error()))
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
-	}
-	err = t.authService.DeleteUser(sub)
+	err := t.authService.DeleteUser(sub)
 	if err != nil {
 		t.logger.Error("failed to delete user from the database", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete user"})
 	}
 	return c.JSON(http.StatusOK, fmt.Sprintf("user %s deleted", sub))
+}
+
+func (t TranslatorServer) GetDecks(c echo.Context) error {
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	decks, err := t.translatorRepository.GetDecksByUserID(c.Request().Context(), userID)
+	if err != nil {
+		t.logger.Error("failed get decs for the user", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get decks for the user"})
+	}
+	return c.JSON(http.StatusOK, decks)
+}
+
+func (t TranslatorServer) GetDecksTranslations(c echo.Context) error {
+	deckIDParam := c.Param("deckID")
+	deckID, err := strconv.Atoi(deckIDParam)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid DeckID",
+		})
+	}
+
+	// Get TranslationIDs from path parameter
+	var translationIDs []int
+	translationIDsParam := c.Param("translationIDs")
+	if translationIDsParam != "" {
+		translationIDStrings := strings.Split(translationIDsParam, ",")
+		for _, idStr := range translationIDStrings {
+			id, err := strconv.Atoi(idStr)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid TranslationIDs",
+				})
+			}
+			translationIDs = append(translationIDs, id)
+		}
+	}
+
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	decksTranslations, err := t.translatorRepository.GetDeckTranslations(c.Request().Context(), deckID, translationIDs, userID)
+	if err != nil {
+		t.logger.Error("failed to get deck's translations", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get deck's translations"})
+	}
+	return c.JSON(http.StatusOK, decksTranslations)
+}
+
+func (t TranslatorServer) GetSubFromToken(c echo.Context) (string, bool, error) {
+	auth := c.Request().Header.Get("Authorization")
+	if auth == "" {
+		return "", true, c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+
+	token := strings.TrimSpace(strings.Replace(auth, "Bearer", "", 1))
+	if token == "" {
+		return "", true, c.JSON(http.StatusUnauthorized, map[string]string{"message": "missing or malformed token"})
+	}
+	sub, err := t.jwtService.GetSubFromAccessToken(token)
+	if err != nil {
+		t.logger.Error("failed to get sub from access token", slog.Any("err", err.Error()))
+		return "", true, c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get users decks"})
+	}
+	return sub, false, nil
 }

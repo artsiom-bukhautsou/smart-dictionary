@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,9 +34,10 @@ var (
 	jwtRefreshTokenExpTime = os.Getenv("JWT_REFRESH_TOKEN_EXP_TIME")
 	jwtAccessTokenExpTime  = os.Getenv("JWT_ACCESS_TOKEN_EXP_TIME")
 
-	allowOrigins = os.Getenv("ALLOW_ORIGINS")
-	tlsCertFile  = os.Getenv("TLS_CERT_FILE")
-	tlsKeyFile   = os.Getenv("TLS_KEY_FILE")
+	allowOrigins  = os.Getenv("ALLOW_ORIGINS")
+	tlsCertFile   = os.Getenv("TLS_CERT_FILE")
+	tlsKeyFile    = os.Getenv("TLS_KEY_FILE")
+	disableTLSEnv = os.Getenv("DISABLE_TLS")
 )
 
 func main() {
@@ -90,6 +93,8 @@ func main() {
 		middlewareInternal.ValidateAccessToken(*jwtAuth),
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
+	apiGroup.GET("/decks", translatorServer.GetDecks)
+	apiGroup.GET("/decks/:deckID/translations", translatorServer.GetDecksTranslations)
 	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
 
 	authGroup := e.Group("/auth")
@@ -102,6 +107,18 @@ func main() {
 	authGroup.POST("/signin", translatorServer.SignIn)
 	authGroup.POST("/signup", translatorServer.SignUp)
 	authGroup.POST("/refresh", translatorServer.RefreshRefreshToken)
-	slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
-	slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
+
+	var disableTLS bool
+	if disableTLSEnv != "" {
+		disableTLS, err = strconv.ParseBool(disableTLSEnv)
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	}
+	fmt.Println("disable TLS: ", disableTLS)
+	if disableTLS {
+		slog.Error("server has failed", slog.Any("err", e.Start(":8080")))
+	} else {
+		slog.Error("server has failed", slog.Any("err", e.StartTLS(":8080", tlsCertFile, tlsKeyFile)))
+	}
 }
