@@ -1,5 +1,10 @@
 package domain
 
+import (
+	"fmt"
+	"strings"
+)
+
 type Translation struct {
 	ID                    int      `json:"id"`
 	OriginalLexicalItem   string   `json:"originalLexicalItem"`
@@ -35,4 +40,24 @@ func IsTranslationNilOrEmpty(t *Translation) bool {
 		return true
 	}
 	return false
+}
+
+func ConvertTranslationToQuizletString(ts []Translation) string {
+	var result strings.Builder
+	for _, t := range ts {
+		result.WriteString(t.OriginalLexicalItem)
+		result.WriteString(";originalMeaning: " + t.OriginalMeaning + "\n")
+		result.WriteString("originalExamples:\n")
+		for i, example := range t.OriginalExamples {
+			result.WriteString(fmt.Sprintf("%d) %s\n", i+1, example))
+		}
+		result.WriteString("translatedLexicalItem: " + t.TranslatedLexicalItem + "\n")
+		result.WriteString("translatedMeaning: " + t.TranslatedMeaning + "\n")
+		result.WriteString("translatedExamples:\n")
+		for i, example := range t.TranslatedExamples {
+			result.WriteString(fmt.Sprintf("%d) %s\n", i+1, example))
+		}
+		result.WriteString("\n\n")
+	}
+	return result.String()
 }

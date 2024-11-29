@@ -232,3 +232,19 @@ func (t *translationRepository) GetCollectionTranslations(ctx context.Context, c
 
 	return translations, nil
 }
+
+func (t *translationRepository) DeleteCollectionTranslations(ctx context.Context, translationIDs []int, collectionID int, userID int) error {
+	query := `
+		DELETE FROM public.collection_translations
+		WHERE translation_id = ANY($1)
+		  AND collection_id = (
+			SELECT id FROM public.collections
+			WHERE id = $2 AND user_id = $3
+		  );
+	`
+	_, err := t.conn.Exec(ctx, query, translationIDs, collectionID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete translations: %w", err)
+	}
+	return nil
+}
