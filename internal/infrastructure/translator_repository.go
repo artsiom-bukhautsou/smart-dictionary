@@ -159,6 +159,32 @@ func (t *translationRepository) GetCollectionsByUserID(ctx context.Context, user
 	return collections, nil
 }
 
+func (t *translationRepository) CreateCollectionByUserID(ctx context.Context, userID int, collectionName string) (int, error) {
+	var collectionID int
+	query := `
+		INSERT INTO public.collections (collection_name, user_id)
+		VALUES ($1, $2)
+		RETURNING id
+	`
+	err := t.conn.QueryRow(ctx, query, collectionName, userID).Scan(&collectionID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create collection: %w", err)
+	}
+	return collectionID, nil
+}
+
+func (t *translationRepository) DeleteCollectionByUserID(ctx context.Context, userID int, collectionID int) error {
+	query := "DELETE FROM public.collections WHERE id = $1 AND user_id = $2"
+	cmdTag, err := t.conn.Exec(ctx, query, collectionID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete collection: %w", err)
+	}
+	if cmdTag.RowsAffected() != 1 {
+		return fmt.Errorf("no collection found with ID %d", collectionID)
+	}
+	return nil
+}
+
 func (t *translationRepository) GetCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error) {
 	var translations []domain.CollectionTranslation
 
