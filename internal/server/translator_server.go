@@ -58,7 +58,10 @@ type TranslatorRepository interface {
 	GetAllTranslations(ctx context.Context) ([]domain.Translation, error)
 	GetTranslation(ctx context.Context, lexicalItem, translateFrom, translateTo string) (*domain.Translation, error)
 	GetCollectionsByUserID(ctx context.Context, userID int) ([]domain.Collection, error)
+	CreateCollectionByUserID(ctx context.Context, userID int, collectionName string) (int, error)
+	DeleteCollectionByUserID(ctx context.Context, userID int, collectionID int) error
 	GetCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error)
+	DeleteCollectionTranslations(ctx context.Context, translationIDs []int, collectionID int, userID int) error
 	CreateCollection(ctx context.Context, userID int, collectionName string) (int, error)
 	SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error)
 }
@@ -149,56 +152,58 @@ func (t TranslatorServer) Translate(c echo.Context) error {
 	if domain.IsTranslationNilOrEmpty(lexicalItem) {
 		return c.String(http.StatusBadRequest, "couldn't translate")
 	}
-	go func() {
-		ctx := context.Background()
-		translation, err := t.translatorRepository.GetTranslation(c.Request().Context(), req.LexicalItem, req.TranslateFrom, req.TranslateTo)
-		if err != nil {
-			t.logger.Error("failed to get translation", slog.Any("err", err.Error()))
-			return
-		}
-		if translation != nil {
-			return
-		}
-		translationID, err := t.translatorRepository.AddTranslation(ctx, *lexicalItem, req.TranslateFrom, req.TranslateTo)
-		if err != nil {
-			t.logger.Error(err.Error())
-		}
+	if req.SavingEnabled {
+		go func() {
+			ctx := context.Background()
+			translationID, err := t.translatorRepository.AddTranslation(ctx, *lexicalItem, req.TranslateFrom, req.TranslateTo)
+			if err != nil {
+				t.logger.Error(err.Error())
+				return
+			}
+			t.addTranslationToCollection(ctx, sub, translationID, req.CollectionID)
 
-		// TODO: add an ability to specify collection in the translation request
-		// At the moment the default collection name will be 'default'
-		t.addTranslationToCollection(ctx, sub, translationID)
-
-	}()
+		}()
+	}
 	return c.JSON(http.StatusOK, lexicalItem)
 }
 
-func (t TranslatorServer) addTranslationToCollection(ctx context.Context, sub string, translationID int) {
+func (t TranslatorServer) addTranslationToCollection(ctx context.Context, sub string, translationID int, collectionID int) {
 	userID, err := strconv.Atoi(sub)
 	if err != nil {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
 		return
 	}
 
-	collections, err := t.translatorRepository.GetCollectionsByUserID(ctx, userID)
-	if err != nil {
-		t.logger.Error("GetCollectionsByUserID failed", slog.Any("err", err.Error()))
-		return
-	}
-	var collectionID int
-	if len(collections) == 0 {
-		collectionID, err = t.translatorRepository.CreateCollection(ctx, userID, "default")
+	if collectionID == 0 {
+		// set default collection
+		collections, err := t.translatorRepository.GetCollectionsByUserID(ctx, userID)
 		if err != nil {
-			t.logger.Error("CreateCollection failed", slog.Any("err", err.Error()))
+			t.logger.Error("GetCollectionsByUserID failed", slog.Any("err", err.Error()))
 			return
 		}
-	} else {
-		collectionID = collections[0].ID
+		var collectionID int
+		if len(collections) == 0 {
+			collectionID, err = t.translatorRepository.CreateCollection(ctx, userID, "default")
+			if err != nil {
+				t.logger.Error("CreateCollection failed", slog.Any("err", err.Error()))
+				return
+			}
+		} else {
+			collectionID = collections[0].ID
+		}
+		_, err = t.translatorRepository.SaveToCollectionLexicalItem(ctx, collectionID, translationID)
+		if err != nil {
+			t.logger.Error("SaveToCollectionLexicalItem failed", slog.Any("err", err.Error()))
+			return
+		}
+		return
 	}
 	_, err = t.translatorRepository.SaveToCollectionLexicalItem(ctx, collectionID, translationID)
 	if err != nil {
 		t.logger.Error("SaveToCollectionLexicalItem failed", slog.Any("err", err.Error()))
 		return
 	}
+
 }
 
 func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, error) {
@@ -250,23 +255,23 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, er
 
 func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
-		Value:    token.Access,
-		Path:     "/",
-		Domain:   "",                                    // Set to your domain if needed
-		Expires:  time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
-		Secure:   true,                                  // Set to true if using HTTPS
-		HttpOnly: true,
+		Name:    "access_token",
+		Value:   token.Access,
+		Path:    "/",
+		Domain:  "",                                    // Set to your domain if needed
+		Expires: time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
+		//Secure:   true,                                  // Set to true if using HTTPS
+		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
 	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
-		Value:    token.Refresh,
-		Path:     "/",
-		Domain:   "",                                     // Set to your domain if needed
-		Expires:  time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
-		Secure:   true,                                   // Set to true if using HTTPS
-		HttpOnly: true,
+		Name:    "refresh_token",
+		Value:   token.Refresh,
+		Path:    "/",
+		Domain:  "",                                     // Set to your domain if needed
+		Expires: time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
+		//Secure:   true,                                   // Set to true if using HTTPS
+		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -302,7 +307,67 @@ func (t TranslatorServer) GetCollections(c echo.Context) error {
 	return c.JSON(http.StatusOK, collections)
 }
 
+func (t TranslatorServer) CreateCollection(c echo.Context) error {
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	var req domain.CollectionCreateRequest
+	err = c.Bind(&req)
+	if err != nil {
+		t.logger.Error("collectoin create request - failed to convert", slog.Any("err", err.Error()))
+		return c.String(http.StatusBadRequest, "invalid input")
+	}
+	collectionID, err := t.translatorRepository.CreateCollectionByUserID(c.Request().Context(), userID, req.CollectionName)
+	if err != nil {
+		t.logger.Error("failed to create collection for the user", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to create collection for the user"})
+	}
+	resp := domain.CollectionCreateResponse{ID: collectionID}
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (t TranslatorServer) DeleteCollection(c echo.Context) error {
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	collectionIDParam := c.Param("collectionID")
+	collectionID, err := strconv.Atoi(collectionIDParam)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid CollectionID",
+		})
+	}
+	err = t.translatorRepository.DeleteCollectionByUserID(c.Request().Context(), userID, collectionID)
+	if err != nil {
+		t.logger.Error("failed to delete collection", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete collection"})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 func (t TranslatorServer) GetCollectionsTranslations(c echo.Context) error {
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
 	collectionIDParam := c.Param("collectionID")
 	collectionID, err := strconv.Atoi(collectionIDParam)
 	if err != nil {
@@ -327,6 +392,33 @@ func (t TranslatorServer) GetCollectionsTranslations(c echo.Context) error {
 		}
 	}
 
+	collectionsTranslations, err := t.translatorRepository.GetCollectionTranslations(c.Request().Context(), collectionID, translationIDs, userID)
+	if err != nil {
+		t.logger.Error("failed to get collection's translations", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get collection's translations"})
+	}
+	return c.JSON(http.StatusOK, collectionsTranslations)
+}
+
+func (t TranslatorServer) DeleteCollectionsTranslations(c echo.Context) error {
+	collectionIDParam := c.Param("collectionID")
+	collectionID, err := strconv.Atoi(collectionIDParam)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid CollectionID"})
+	}
+	var translationIDs []int
+	params := c.QueryParams()
+	translationIDsParams, ok := params["translationIds"]
+	if ok {
+		for _, idStr := range translationIDsParams {
+			id, err := strconv.Atoi(idStr)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid TranslationIDs"})
+			}
+			translationIDs = append(translationIDs, id)
+		}
+	}
+
 	sub, failed, status := t.GetSubFromToken(c)
 	if failed {
 		return status
@@ -337,12 +429,51 @@ func (t TranslatorServer) GetCollectionsTranslations(c echo.Context) error {
 		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
 	}
-	collectionsTranslations, err := t.translatorRepository.GetCollectionTranslations(c.Request().Context(), collectionID, translationIDs, userID)
+	err = t.translatorRepository.DeleteCollectionTranslations(c.Request().Context(), translationIDs, collectionID, userID)
+	if err != nil {
+		t.logger.Error("failed to delete collection's translations", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to delete collection's translations"})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (t TranslatorServer) ExportCollectionsTranslations(c echo.Context) error {
+	collectionIDParam := c.Param("collectionID")
+	collectionID, err := strconv.Atoi(collectionIDParam)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid CollectionID",
+		})
+	}
+	product := c.QueryParam("product")
+	if product == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "product is not specified"})
+	}
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	collectionsTranslations, err := t.translatorRepository.GetCollectionTranslations(c.Request().Context(), collectionID, []int{}, userID)
 	if err != nil {
 		t.logger.Error("failed to get collection's translations", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to get collection's translations"})
 	}
-	return c.JSON(http.StatusOK, collectionsTranslations)
+	var translations []domain.Translation
+	for _, collectionTranslation := range collectionsTranslations {
+		translations = append(translations, collectionTranslation.Translation)
+	}
+	quizletString := domain.ConvertTranslationToQuizletString(translations)
+
+	filename := fmt.Sprintf("flesh-cards-%s-%d.txt", product, collectionID)
+	c.Response().Header().Set(echo.HeaderContentDisposition, "attachment; filename="+filename)
+	c.Response().Header().Set(echo.HeaderContentType, "text/plain")
+
+	return c.Blob(http.StatusOK, "text/plain", []byte(quizletString))
 }
 
 func (t TranslatorServer) GetSubFromToken(c echo.Context) (string, bool, error) {

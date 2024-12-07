@@ -94,7 +94,11 @@ func main() {
 	)
 	apiGroup.POST("/translations", translatorServer.Translate)
 	apiGroup.GET("/collections", translatorServer.GetCollections)
+	apiGroup.POST("/collections", translatorServer.CreateCollection)
+	apiGroup.DELETE("/collections/:collectionID", translatorServer.DeleteCollection)
 	apiGroup.GET("/collections/:collectionID/translations", translatorServer.GetCollectionsTranslations)
+	apiGroup.DELETE("/collections/:collectionID/translations", translatorServer.DeleteCollectionsTranslations)
+	apiGroup.GET("/collections/:collectionID/export", translatorServer.ExportCollectionsTranslations)
 	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
 
 	authGroup := e.Group("/auth")
