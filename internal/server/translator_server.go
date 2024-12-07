@@ -260,7 +260,7 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		Path:    "/",
 		Domain:  "",                                    // Set to your domain if needed
 		Expires: time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
-		//Secure:   true,                                  // Set to true if using HTTPS
+		Secure:   true,                                  // Set to true if using HTTPS
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -270,7 +270,7 @@ func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 		Path:    "/",
 		Domain:  "",                                     // Set to your domain if needed
 		Expires: time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
-		//Secure:   true,                                   // Set to true if using HTTPS
+		Secure:   true,                                   // Set to true if using HTTPS
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
