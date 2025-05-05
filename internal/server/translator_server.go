@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"log/slog"
@@ -30,6 +31,8 @@ type TranslatorServer struct {
 	chatGPTAPIURL string
 	apiKey        string
 
+	ttsAPIKey string
+
 	translatorRepository TranslatorRepository
 }
 
@@ -40,7 +43,9 @@ func NewTranslatorServer(
 	refreshTokenDuration time.Duration,
 	translatorRepository TranslatorRepository,
 	logger slog.Logger, chatGPTAPIURL string,
-	apiKey string) *TranslatorServer {
+	apiKey string,
+	ttsAPIKey string,
+	) *TranslatorServer {
 	return &TranslatorServer{
 		authService:          authService,
 		jwtService:           jwtService,
@@ -50,6 +55,7 @@ func NewTranslatorServer(
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
+		ttsAPIKey: ttsAPIKey,
 	}
 }
 
@@ -331,6 +337,64 @@ func (t TranslatorServer) CreateCollection(c echo.Context) error {
 	resp := domain.CollectionCreateResponse{ID: collectionID}
 	return c.JSON(http.StatusOK, resp)
 }
+
+func (t TranslatorServer) TextToSpeech(c echo.Context) error {
+	_, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+
+	var req domain.TTSRequest
+	if err := c.Bind(&req); err != nil {
+		t.logger.Error("TTS request - failed to parse", slog.Any("err", err.Error()))
+		return c.String(http.StatusBadRequest, "invalid input")
+	}
+
+	if req.Text == "" {
+		return c.String(http.StatusBadRequest, "text is required")
+	}
+
+	ttsPayload := map[string]string{
+		"text":     req.Text,
+		"model_id": "papla_p1",
+	}
+
+	jsonData, err := json.Marshal(ttsPayload)
+	if err != nil {
+		t.logger.Error("TTS request - failed to marshal payload", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal error"})
+	}
+
+	// Prepare the Papla API request
+	url := "https://api.papla.media/v1/text-to-speech/77bbc6a8-9660-4e8a-92f1-e021f4f80cc9/stream"
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.logger.Error("TTS request - failed to create HTTP request", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal error"})
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("papla-api-key", t.ttsAPIKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		t.logger.Error("TTS request - failed to fetch audio", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to fetch audio"})
+	}
+	defer resp.Body.Close()
+
+	// Set audio headers and stream the response
+	c.Response().Header().Set("Content-Type", "audio/mpeg")
+	c.Response().Header().Set("Content-Disposition", "inline; filename=audio.mp3")
+	c.Response().WriteHeader(http.StatusOK)
+	_, copyErr := io.Copy(c.Response(), resp.Body)
+	if copyErr != nil {
+		t.logger.Error("TTS request - failed to stream audio", slog.Any("err", copyErr.Error()))
+	}
+
+	return nil
+}
+
 
 func (t TranslatorServer) DeleteCollection(c echo.Context) error {
 	sub, failed, status := t.GetSubFromToken(c)

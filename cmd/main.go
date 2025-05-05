@@ -38,6 +38,8 @@ var (
 	tlsCertFile   = os.Getenv("TLS_CERT_FILE")
 	tlsKeyFile    = os.Getenv("TLS_KEY_FILE")
 	disableTLSEnv = os.Getenv("DISABLE_TLS")
+
+	ttsAPIKey = os.Getenv("TTS_API_KEY")
 )
 
 func main() {
@@ -82,6 +84,7 @@ func main() {
 		*logger,
 		chatGPTAPIURL,
 		apiKey,
+		ttsAPIKey,
 	)
 
 	apiGroup := e.Group("/api")
@@ -95,6 +98,7 @@ func main() {
 	apiGroup.POST("/translations", translatorServer.Translate)
 	apiGroup.GET("/collections", translatorServer.GetCollections)
 	apiGroup.POST("/collections", translatorServer.CreateCollection)
+	apiGroup.POST("/tts", translatorServer.TextToSpeech)
 	apiGroup.DELETE("/collections/:collectionID", translatorServer.DeleteCollection)
 	apiGroup.GET("/collections/:collectionID/translations", translatorServer.GetCollectionsTranslations)
 	apiGroup.DELETE("/collections/:collectionID/translations", translatorServer.DeleteCollectionsTranslations)
