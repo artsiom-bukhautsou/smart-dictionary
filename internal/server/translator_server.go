@@ -339,6 +339,11 @@ func (t TranslatorServer) CreateCollection(c echo.Context) error {
 }
 
 func (t TranslatorServer) TextToSpeech(c echo.Context) error {
+	const(
+		english = "77bbc6a8-9660-4e8a-92f1-e021f4f80cc9"
+		polish = "346e8979-02bd-4cc9-9e15-7929da7c6ac1"
+		russian = "acdbd9ef-a79b-429f-b8ed-78a80c61d459"
+	)
 	_, failed, status := t.GetSubFromToken(c)
 	if failed {
 		return status
@@ -365,9 +370,18 @@ func (t TranslatorServer) TextToSpeech(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal error"})
 	}
 
-	// Prepare the Papla API request
-	url := "https://api.papla.media/v1/text-to-speech/77bbc6a8-9660-4e8a-92f1-e021f4f80cc9/stream"
-	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	const ttsEndpointFmt = "https://api.papla.media/v1/text-to-speech/%s/stream"
+
+	var ttsEndpoint string
+	if req.Language == domain.LanguagePolish {
+		ttsEndpoint = fmt.Sprintf(ttsEndpointFmt, polish)
+	} else if req.Language == domain.LanguageRussian {
+		ttsEndpoint = fmt.Sprintf(ttsEndpointFmt, russian)
+	} else {
+		ttsEndpoint = fmt.Sprintf(ttsEndpointFmt, english)
+	}
+
+	httpReq, err := http.NewRequest("POST", ttsEndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.logger.Error("TTS request - failed to create HTTP request", slog.Any("err", err.Error()))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "internal error"})
