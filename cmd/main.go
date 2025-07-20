@@ -105,13 +105,8 @@ func main() {
 	apiGroup.GET("/collections/:collectionID/export", translatorServer.ExportCollectionsTranslations)
 	apiGroup.DELETE("/accounts", translatorServer.DeleteUsersAccount)
 
-	// flesh cards
-	cardsServer := server.NewFleshCardsServer()
-	apiGroup.POST("/cards", cardsServer.AddCardHandler)
-    apiGroup.GET("/cards", cardsServer.ListCardsHandler)
-    apiGroup.DELETE("/cards/:id", cardsServer.DeleteCardHandler)
-    apiGroup.GET("/review", cardsServer.GetDueCardHandler)
-    apiGroup.POST("/review/:id", cardsServer.RateCardHandler)
+    apiGroup.GET("/review", translatorServer.GetDueCollectionTranslation)
+	apiGroup.POST("/review/:collection_id/:id", translatorServer.RateCollectionTranslation)
 
 	authGroup := e.Group("/auth")
 	authGroup.Use(

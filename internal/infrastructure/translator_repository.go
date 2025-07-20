@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bukhavtsov/artems-dictionary/internal/domain"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -124,19 +125,6 @@ func (t *translationRepository) CreateCollection(ctx context.Context, userID int
 	return 0, nil
 }
 
-func (t *translationRepository) SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error) {
-	_, err := t.conn.Exec(
-		ctx,
-		"INSERT INTO collection_translations (collection_id, translation_id) VALUES ($1, $2)",
-		collectionID,
-		translationID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("failed to assosiate translation with collection: %w", err)
-	}
-	return 0, nil
-}
-
 func (t *translationRepository) GetCollectionsByUserID(ctx context.Context, userID int) ([]domain.Collection, error) {
 	var collections []domain.Collection
 
@@ -185,6 +173,21 @@ func (t *translationRepository) DeleteCollectionByUserID(ctx context.Context, us
 	return nil
 }
 
+func (t *translationRepository) SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error) {
+	_, err := t.conn.Exec(
+		ctx,
+		"INSERT INTO collection_translations (collection_id, translation_id, due) VALUES ($1, $2, $3)",
+		collectionID,
+		translationID,
+		time.Now(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to assosiate translation with collection: %w", err)
+	}
+	return 0, nil
+}
+
+
 func (t *translationRepository) GetCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error) {
 	var translations []domain.CollectionTranslation
 
@@ -193,6 +196,7 @@ func (t *translationRepository) GetCollectionTranslations(ctx context.Context, c
 		    ct.id AS collection_translation_id, 
 		    ct.collection_id, 
 		    ct.translation_id, 
+			ct.due,
 		    c.collection_name, 
 		    c.user_id, 
 		    t.lexical_item, 
@@ -236,6 +240,7 @@ func (t *translationRepository) GetCollectionTranslations(ctx context.Context, c
 			&ct.ID,
 			&collection.ID,
 			&translation.ID,
+			&ct.Due,
 			&collection.Name,
 			&collection.UserID,
 			&translation.OriginalLexicalItem,
@@ -273,4 +278,114 @@ func (t *translationRepository) DeleteCollectionTranslations(ctx context.Context
 		return fmt.Errorf("failed to delete translations: %w", err)
 	}
 	return nil
+}
+
+func (t *translationRepository) UpdateCollectionTranslationDue(
+	ctx context.Context,
+	collectionTranslationID int,
+	collectionID int,
+	newDue time.Time,
+	userID int,
+) error {
+	_, err := t.conn.Exec(
+		ctx,
+		`UPDATE collection_translations
+		 SET due = $1
+		 WHERE id = $2
+		   AND collection_id = (
+			 SELECT id FROM collections
+			 WHERE id = $3 AND user_id = $4
+		   )`,
+		newDue,
+		collectionTranslationID,
+		collectionID,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update due date: %w", err)
+	}
+	return nil
+}
+
+func (t *translationRepository) GetDueCollectionTranslations(
+    ctx context.Context,
+    collectionID int,
+    translationIDs []int,
+    userID int,
+) ([]domain.CollectionTranslation, error) {
+    var translations []domain.CollectionTranslation
+
+    query := `
+        SELECT 
+            ct.id AS collection_translation_id, 
+            ct.collection_id, 
+            ct.translation_id, 
+            ct.due,
+            c.collection_name, 
+            c.user_id, 
+            t.lexical_item, 
+            t.meaning, 
+            t.examples, 
+            t.translated_from, 
+            t.translated_to, 
+            t.translated_lexical_item, 
+            t.translated_meaning, 
+            t.translated_examples
+        FROM 
+            collection_translations ct
+        JOIN 
+            collections c ON ct.collection_id = c.id
+        JOIN 
+            translations t ON ct.translation_id = t.id
+        WHERE 
+            c.id = $1
+        AND
+            c.user_id = $2
+        AND
+            ct.due <= NOW()
+    `
+    args := []interface{}{collectionID, userID}
+
+    if len(translationIDs) > 0 {
+        query += " AND t.id = ANY($3)"
+        args = append(args, translationIDs)
+    }
+
+    rows, err := t.conn.Query(ctx, query, args...)
+    if err != nil {
+        return nil, fmt.Errorf("failed to retrieve due collection translations for collection_id %d: %w", collectionID, err)
+    }
+    defer rows.Close()
+
+    for rows.Next() {
+        var ct domain.CollectionTranslation
+        var collection domain.Collection
+        var translation domain.Translation
+
+        if err := rows.Scan(
+            &ct.ID,
+            &collection.ID,
+            &translation.ID,
+            &ct.Due,
+            &collection.Name,
+            &collection.UserID,
+            &translation.OriginalLexicalItem,
+            &translation.OriginalMeaning,
+            &translation.OriginalExamples,
+            &translation.TranslatedFrom,
+            &translation.TranslatedTo,
+            &translation.TranslatedLexicalItem,
+            &translation.TranslatedMeaning,
+            &translation.TranslatedExamples,
+        ); err != nil {
+            return nil, fmt.Errorf("failed to scan collection_translation row: %w", err)
+        }
+
+        ct.Collection = collection
+        ct.Translation = translation
+
+        translations = append(translations, ct)
+    }
+
+    return translations, nil
 }

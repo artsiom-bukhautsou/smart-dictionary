@@ -43,3 +43,7 @@ CREATE TABLE IF NOT EXISTS public.collection_translations (
 -- Create index on collection_id and translation_id columns in collection_translations table
 CREATE INDEX idx_collection_id ON collection_translations (collection_id);
 CREATE INDEX idx_translation_id ON collection_translations (translation_id);
+
+-- Add due timestamp for flesh cards functionality
+ALTER TABLE public.collection_translations
+ADD COLUMN due TIMESTAMP;

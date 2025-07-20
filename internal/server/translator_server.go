@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func NewTranslatorServer(
 	logger slog.Logger, chatGPTAPIURL string,
 	apiKey string,
 	ttsAPIKey string,
-	) *TranslatorServer {
+) *TranslatorServer {
 	return &TranslatorServer{
 		authService:          authService,
 		jwtService:           jwtService,
@@ -55,7 +56,7 @@ func NewTranslatorServer(
 		logger:               logger,
 		chatGPTAPIURL:        chatGPTAPIURL,
 		apiKey:               apiKey,
-		ttsAPIKey: ttsAPIKey,
+		ttsAPIKey:            ttsAPIKey,
 	}
 }
 
@@ -70,6 +71,8 @@ type TranslatorRepository interface {
 	DeleteCollectionTranslations(ctx context.Context, translationIDs []int, collectionID int, userID int) error
 	CreateCollection(ctx context.Context, userID int, collectionName string) (int, error)
 	SaveToCollectionLexicalItem(ctx context.Context, collectionID, translationID int) (int, error)
+	GetDueCollectionTranslations(ctx context.Context, collectionID int, translationIDs []int, userID int) ([]domain.CollectionTranslation, error)
+	UpdateCollectionTranslationDue(ctx context.Context, collectionTranslationID int, collection_id int, newDue time.Time, userID int) error
 }
 
 func (t TranslatorServer) SignIn(c echo.Context) error {
@@ -261,21 +264,21 @@ func (t TranslatorServer) callChatGPTAPI(prompt string) (*domain.Translation, er
 
 func (t TranslatorServer) enrichAuthToken(c echo.Context, token *domain.Token) {
 	c.SetCookie(&http.Cookie{
-		Name:    "access_token",
-		Value:   token.Access,
-		Path:    "/",
-		Domain:  "",                                    // Set to your domain if needed
-		Expires: time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
+		Name:     "access_token",
+		Value:    token.Access,
+		Path:     "/",
+		Domain:   "",                                    // Set to your domain if needed
+		Expires:  time.Now().Add(t.accessTokenDuration), // Set expiration as per your requirements
 		Secure:   true,                                  // Set to true if using HTTPS
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
 	c.SetCookie(&http.Cookie{
-		Name:    "refresh_token",
-		Value:   token.Refresh,
-		Path:    "/",
-		Domain:  "",                                     // Set to your domain if needed
-		Expires: time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
+		Name:     "refresh_token",
+		Value:    token.Refresh,
+		Path:     "/",
+		Domain:   "",                                     // Set to your domain if needed
+		Expires:  time.Now().Add(t.refreshTokenDuration), // Set expiration as per your requirements
 		Secure:   true,                                   // Set to true if using HTTPS
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
@@ -339,9 +342,9 @@ func (t TranslatorServer) CreateCollection(c echo.Context) error {
 }
 
 func (t TranslatorServer) TextToSpeech(c echo.Context) error {
-	const(
+	const (
 		english = "77bbc6a8-9660-4e8a-92f1-e021f4f80cc9"
-		polish = "346e8979-02bd-4cc9-9e15-7929da7c6ac1"
+		polish  = "346e8979-02bd-4cc9-9e15-7929da7c6ac1"
 		russian = "acdbd9ef-a79b-429f-b8ed-78a80c61d459"
 	)
 	_, failed, status := t.GetSubFromToken(c)
@@ -408,7 +411,6 @@ func (t TranslatorServer) TextToSpeech(c echo.Context) error {
 
 	return nil
 }
-
 
 func (t TranslatorServer) DeleteCollection(c echo.Context) error {
 	sub, failed, status := t.GetSubFromToken(c)
@@ -552,6 +554,84 @@ func (t TranslatorServer) ExportCollectionsTranslations(c echo.Context) error {
 	c.Response().Header().Set(echo.HeaderContentType, "text/plain")
 
 	return c.Blob(http.StatusOK, "text/plain", []byte(quizletString))
+}
+
+func (t TranslatorServer) GetDueCollectionTranslation(c echo.Context) error {
+	collectionIDStr := c.QueryParam("collection_id")
+	collectionID, err := strconv.Atoi(collectionIDStr)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid collection id")
+	}
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	translations, err := t.translatorRepository.GetDueCollectionTranslations(c.Request().Context(), collectionID, []int{}, userID)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+	if len(translations) == 0 {
+		return c.NoContent(http.StatusNoContent)
+	}
+	// Random selection (optional, or just return all due)
+	idx := rand.Intn(len(translations))
+	return c.JSON(http.StatusOK, translations[idx])
+}
+
+func (t TranslatorServer) RateCollectionTranslation(c echo.Context) error {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid id")
+	}
+
+	collectionIDStr := c.Param("collection_id")
+	collectionID, err := strconv.Atoi(collectionIDStr)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid collection_id")
+	}
+	sub, failed, status := t.GetSubFromToken(c)
+	if failed {
+		return status
+	}
+	userID, err := strconv.Atoi(sub)
+	if err != nil {
+		t.logger.Error("failed to convert sub string to userID int", slog.Any("err", err.Error()))
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid userID"})
+	}
+	var input domain.RateTranslationInput
+	if err := c.Bind(&input); err != nil {
+		return c.String(http.StatusBadRequest, "Invalid input")
+	}
+	switch input.Rating {
+	case domain.RatingAgain, domain.RatingWeek, domain.RatingMonth, domain.RatingTwoMonth:
+	default:
+		return c.String(http.StatusBadRequest, "Invalid rating value")
+	}
+
+	now := time.Now()
+	var newDue time.Time
+	switch input.Rating {
+	case domain.RatingAgain:
+		newDue = now
+	case domain.RatingWeek:
+		newDue = now.AddDate(0, 0, 7)
+	case domain.RatingMonth:
+		newDue = now.AddDate(0, 1, 0)
+	case domain.RatingTwoMonth:
+		newDue = now.AddDate(0, 2, 0)
+	}
+
+	if err := t.translatorRepository.UpdateCollectionTranslationDue(c.Request().Context(), id, collectionID, newDue, userID); err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func (t TranslatorServer) GetSubFromToken(c echo.Context) (string, bool, error) {
