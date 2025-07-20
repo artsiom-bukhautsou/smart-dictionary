@@ -342,7 +342,7 @@ func (t *translationRepository) GetDueCollectionTranslations(
         AND
             c.user_id = $2
         AND
-            ct.due <= NOW()
+        	(ct.due IS NULL OR ct.due <= NOW())
     `
     args := []interface{}{collectionID, userID}
 
