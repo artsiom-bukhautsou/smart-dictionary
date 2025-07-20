@@ -12,5 +12,5 @@ type CollectionTranslation struct {
 	ID          int         `json:"id"`
 	Collection  Collection  `json:"collection"`
 	Translation Translation `json:"translation"`
-	Due         time.Time   `json:"due"`
+	Due         *time.Time  `json:"due,omitempty"`
 }
